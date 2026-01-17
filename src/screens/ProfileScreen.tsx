@@ -10,6 +10,7 @@ import {
   Wallet,
   UserPlus,
   UserMinus,
+  ArrowDownToLine,
 } from "lucide-react";
 import { usePearAuthContext } from "@/contexts/PearAuthContext";
 import { useAccount } from "wagmi";
@@ -19,6 +20,8 @@ import type { User, TradePost, TradePostWithCreator } from "@/types/database";
 import { usePearPositions, usePearTradeHistory } from "@/hooks/usePear";
 import { calculateAndUpdateUserStats } from "@/lib/userStats";
 import { SocialTradePost } from "@/components/SocialTradePost";
+import { WithdrawModal } from "@/components/WithdrawModal";
+import { hyperliquidClient } from "@/lib/hyperliquidClient";
 
 type Tab = "trades" | "history" | "about" | "posts";
 
@@ -41,6 +44,21 @@ export function ProfileScreen() {
   const [editName, setEditName] = useState("");
   const [editBio, setEditBio] = useState("");
   const [isFollowing, setIsFollowing] = useState(false);
+
+  // Withdraw Modal State
+  const [showWithdrawModal, setShowWithdrawModal] = useState(false);
+  const [hlBalance, setHlBalance] = useState(0);
+
+  // Fetch Hyperliquid balance for withdraw
+  useEffect(() => {
+    const fetchBalance = async () => {
+      if (address && isAuthenticated) {
+        const portfolio = await hyperliquidClient.getPortfolio(address);
+        setHlBalance(portfolio.withdrawable || portfolio.accountValue);
+      }
+    };
+    fetchBalance();
+  }, [address, isAuthenticated]);
 
   // Pear Hooks
   const { positions: pearPositions, isLoading: positionsLoading } =
@@ -358,13 +376,22 @@ export function ProfileScreen() {
 
         {/* Edit Profile / Follow Button */}
         {isOwnProfile ? (
-          <button
-            onClick={() => setIsEditing(true)}
-            className="w-full py-3 rounded-xl border-2 border-primary text-primary font-bold tap-scale hover:bg-primary/5 transition-colors flex items-center justify-center gap-2"
-          >
-            <Edit2 className="w-5 h-5" />
-            Edit Profile
-          </button>
+          <div className="flex gap-3">
+            <button
+              onClick={() => setIsEditing(true)}
+              className="flex-1 py-3 rounded-xl border-2 border-primary text-primary font-bold tap-scale hover:bg-primary/5 transition-colors flex items-center justify-center gap-2"
+            >
+              <Edit2 className="w-5 h-5" />
+              Edit Profile
+            </button>
+            <button
+              onClick={() => setShowWithdrawModal(true)}
+              className="px-4 py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-green-600 text-white font-bold tap-scale hover:from-emerald-600 hover:to-green-700 transition-colors flex items-center justify-center gap-2"
+            >
+              <ArrowDownToLine className="w-5 h-5" />
+              Withdraw
+            </button>
+          </div>
         ) : (
           <button
             onClick={handleFollowToggle}
@@ -683,6 +710,21 @@ export function ProfileScreen() {
           </div>
         )}
       </div>
+
+      {/* Withdraw Modal */}
+      <WithdrawModal
+        isOpen={showWithdrawModal}
+        onClose={() => setShowWithdrawModal(false)}
+        availableBalance={hlBalance}
+        onSuccess={() => {
+          // Refresh balance after withdrawal
+          if (address) {
+            hyperliquidClient.getPortfolio(address).then((p) => {
+              setHlBalance(p.withdrawable || p.accountValue);
+            });
+          }
+        }}
+      />
     </div>
   );
 }

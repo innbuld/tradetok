@@ -112,6 +112,7 @@ const LEG_MIN_NOTIONAL = 11; // $11 per leg
 class TradingAgent {
   private defaultAmount = 50; // $50 default
   private defaultLeverage = 1; // 1x (safe starting point)
+  private lastAnalysisError: string | null = null; // Track last failure reason
 
   /**
    * Calculate the actual minimum notional for an asset based on its metadata
@@ -579,6 +580,9 @@ class TradingAgent {
     command: AgentCommand, 
     userBalance?: number
   ): Promise<AgentAnalysis | null> {
+    // Clear previous error
+    this.lastAnalysisError = null;
+    
     // Default balance if not provided
     const balance = userBalance || 100;
 
@@ -598,6 +602,7 @@ class TradingAgent {
 
         if (!tradeParams.canTrade) {
           console.log('[Agent] Cannot trade:', tradeParams.reason);
+          this.lastAnalysisError = tradeParams.reason || 'Trade requirements not met';
           return null;
         }
 
@@ -629,6 +634,7 @@ class TradingAgent {
 
         if (!tradeParams.canTrade) {
           console.log('[Agent] Cannot trade:', tradeParams.reason);
+          this.lastAnalysisError = tradeParams.reason || 'Trade requirements not met';
           return null;
         }
 
@@ -670,6 +676,7 @@ class TradingAgent {
 
         if (!tradeParams.canTrade) {
           console.log('[Agent] Cannot trade:', tradeParams.reason);
+          this.lastAnalysisError = tradeParams.reason || 'Trade requirements not met';
           return null;
         }
 
@@ -712,6 +719,7 @@ class TradingAgent {
 
         if (!tradeParams.canTrade) {
           console.log('[Agent] Cannot trade:', tradeParams.reason);
+          this.lastAnalysisError = tradeParams.reason || 'Trade requirements not met';
           return null;
         }
 
@@ -750,6 +758,7 @@ class TradingAgent {
 
         if (!tradeParams.canTrade) {
           console.log('[Agent] Cannot trade:', tradeParams.reason);
+          this.lastAnalysisError = tradeParams.reason || 'Trade requirements not met';
           return null;
         }
 
@@ -794,6 +803,7 @@ class TradingAgent {
 
         if (!tradeParams.canTrade) {
           console.log('[Agent] Cannot trade:', tradeParams.reason);
+          this.lastAnalysisError = tradeParams.reason || 'Trade requirements not met';
           return null;
         }
 
@@ -1087,11 +1097,14 @@ class TradingAgent {
       // Analyze and get trade details with smart leverage
       const analysis = await this.analyze(command, userBalance);
       if (!analysis) {
-        let errorMsg = userBalance < 4 
-          ? `Insufficient balance ($${userBalance.toFixed(2)}). Minimum $4 required with 5x leverage.`
-          : 'Could not find suitable trade opportunity. Try again later.';
+        // Use the specific error from analyze() if available
+        let errorMsg = this.lastAnalysisError || (
+          userBalance < 4 
+            ? `Insufficient balance ($${userBalance.toFixed(2)}). Minimum $4 required with 5x leverage.`
+            : 'Could not find suitable trade opportunity. Try again later.'
+        );
 
-        if (command.strategy === 'CLOSE_POSITION') {
+        if (command.strategy === 'CLOSE_POSITION' && !this.lastAnalysisError) {
            errorMsg = "Couldn't find any matching open positions to close. Try specifying the asset (e.g. 'Close BTC').";
         }
 

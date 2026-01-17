@@ -2,6 +2,31 @@
 // Used for direct data fetching bypassing Pear backend for accuracy
 
 const HYPERLIQUID_INFO_URL = "https://api.hyperliquid.xyz/info";
+const HYPERLIQUID_EXCHANGE_URL = "https://api.hyperliquid.xyz/exchange";
+
+// EIP-712 Types for Withdrawal
+export const WITHDRAW_TYPES = {
+  "HyperliquidTransaction:Withdraw": [
+    { name: "hyperliquidChain", type: "string" },
+    { name: "destination", type: "string" },
+    { name: "amount", type: "string" },
+    { name: "time", type: "uint64" },
+  ],
+} as const;
+
+export const WITHDRAW_DOMAIN = {
+  name: "HyperliquidSignTransaction",
+  version: "1",
+  chainId: 42161, // Arbitrum
+  verifyingContract: "0x0000000000000000000000000000000000000000" as `0x${string}`,
+} as const;
+
+export interface WithdrawRequest {
+  destination: string;
+  amount: string;
+  time: number;
+  hyperliquidChain: "Mainnet" | "Testnet";
+}
 
 export interface HyperliquidPortfolio {
   accountValue: number;
@@ -163,6 +188,52 @@ export const hyperliquidClient = {
     } catch (err) {
       console.error("Failed to fetch positions:", err);
       return [];
+    }
+  },
+
+  /**
+   * Submit a signed withdrawal request to Hyperliquid
+   * The signature must be obtained via EIP-712 signTypedData in the component
+   */
+  async submitWithdraw(
+    action: {
+      type: "withdraw3";
+      hyperliquidChain: "Mainnet" | "Testnet";
+      signatureChainId: string;
+      amount: string;
+      time: number;
+      destination: string;
+    },
+    nonce: number,
+    signature: { r: string; s: string; v: number }
+  ): Promise<{ success: boolean; error?: string }> {
+    try {
+      const response = await fetch(HYPERLIQUID_EXCHANGE_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action,
+          nonce,
+          signature,
+        }),
+      });
+
+      const data = await response.json();
+      
+      if (data.status === "ok") {
+        return { success: true };
+      } else {
+        return { 
+          success: false, 
+          error: data.response?.data?.statuses?.[0]?.error || "Withdrawal failed" 
+        };
+      }
+    } catch (err) {
+      console.error("Failed to submit withdrawal:", err);
+      return { 
+        success: false, 
+        error: err instanceof Error ? err.message : "Network error" 
+      };
     }
   }
 };

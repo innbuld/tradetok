@@ -4,6 +4,7 @@ import { SocialTradePost } from "@/components/SocialTradePost";
 import { CopyTradeModal } from "@/components/CopyTradeModal";
 import { CreateTradeModal } from "@/components/CreateTradeModal";
 import { BasketTradeModal } from "@/components/BasketTradeModal";
+import { BasketTradeExplainer } from "@/components/BasketTradeExplainer";
 import { FilterDrawer } from "@/components/FilterDrawer";
 import { WalletConnectButton } from "@/components/WalletConnectButton";
 import { AgentChat } from "@/components/AgentChat";
@@ -27,6 +28,7 @@ export function FeedScreen() {
     null,
   );
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [isBasketExplainerOpen, setIsBasketExplainerOpen] = useState(false);
   const [isBasketOpen, setIsBasketOpen] = useState(false);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [isAgentExpanded, setIsAgentExpanded] = useState(false);
@@ -347,6 +349,27 @@ export function FeedScreen() {
         onTradeCreated={handleTradeCreated}
         onSwitchToBasket={() => {
           setIsCreateOpen(false);
+          // Check if user has already seen the explainer
+          const hasSeenExplainer = localStorage.getItem(
+            "hasSeenBasketExplainer",
+          );
+          if (hasSeenExplainer) {
+            // Skip explainer, go directly to basket modal
+            setIsBasketOpen(true);
+          } else {
+            // Show explainer for first-time users
+            setIsBasketExplainerOpen(true);
+          }
+        }}
+      />
+
+      <BasketTradeExplainer
+        isOpen={isBasketExplainerOpen}
+        onClose={() => setIsBasketExplainerOpen(false)}
+        onContinue={() => {
+          // Mark as seen so it doesn't show again
+          localStorage.setItem("hasSeenBasketExplainer", "true");
+          setIsBasketExplainerOpen(false);
           setIsBasketOpen(true);
         }}
       />

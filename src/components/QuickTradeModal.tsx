@@ -460,7 +460,10 @@ export function QuickTradeModal({
 
   const fillAmount = (percent: number) => {
     if (availableBalance > 0) {
-      setAmount((availableBalance * percent).toFixed(2));
+      // Reserve 0.1 for gas when using full balance (MAX)
+      const buffer = percent >= 1 ? 0.1 : 0;
+      const amount = Math.max(0, availableBalance * percent - buffer);
+      setAmount(amount.toFixed(2));
     }
   };
 
