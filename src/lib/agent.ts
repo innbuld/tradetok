@@ -18,6 +18,7 @@ export type AgentStrategy =
   | 'COPY_TOP_TRADER'
   | 'PAIR_TRADE'  // Long one asset, short another
   | 'BASKET_TRADE' // NEW: Multiple assets
+  | 'CLOSE_POSITION' // NEW: Close existing position
   | 'CUSTOM';
 
 export interface AgentCommand {
@@ -28,6 +29,7 @@ export interface AgentCommand {
   stopLoss?: number;   // Percentage
   customParams?: {
     asset?: string;
+    positionId?: string; // NEW: For closing specific position
     shortAsset?: string;
     longAssets?: string[];  // NEW: For basket trades
     shortAssets?: string[]; // NEW: For basket trades
@@ -55,6 +57,7 @@ export interface AgentAnalysis {
   suggestedLeverage: number;
   takeProfit?: number;
   stopLoss?: number;
+  closePositionId?: string; // NEW: ID of position to close
 }
 
 export interface AgentExecutionResult {
@@ -816,6 +819,48 @@ class TradingAgent {
         };
       }
 
+
+
+      case 'CLOSE_POSITION': {
+        const asset = command.customParams?.asset;
+        const positionId = command.customParams?.positionId;
+
+        // Fetch open positions
+        const positions = await pearClient.getOpenPositions();
+        
+        let targetPosition;
+
+        if (positionId) {
+          targetPosition = positions.find(p => p.positionId === positionId);
+        } else if (asset) {
+          // Find position containing this asset (long or short)
+          targetPosition = positions.find(p => 
+            p.longAssets.some(a => a.coin === asset) || 
+            p.shortAssets.some(a => a.coin === asset)
+          );
+        } else if (positions.length > 0) {
+           // Close most recent? Or fail?
+           // For safety, let's pick the most recent one if ambiguous but user said "close position"
+           targetPosition = positions[0]; 
+        }
+
+        if (!targetPosition) {
+           console.log('[Agent] No position found to close');
+           return null;
+        }
+
+        return {
+          strategy: 'CLOSE_POSITION',
+          asset: asset || 'Unknown',
+          direction: 'LONG', // Irrelevant for close
+          pair: 'Closing Position',
+          reason: `Closing position ${targetPosition.positionId} (${asset || 'Most Recent'}).`,
+          suggestedAmount: 0,
+          suggestedLeverage: 0,
+          closePositionId: targetPosition.positionId,
+        };
+      }
+
       default:
         return null;
     }
@@ -828,12 +873,12 @@ class TradingAgent {
     try {
       const asset = analysis.asset;
       
-      // For basket trades, we don't need a single 'asset' defined
-      if (!asset && analysis.strategy !== 'BASKET_TRADE') {
+      // For basket trades and closes, we don't need a single 'asset' defined
+      if (!asset && !['BASKET_TRADE', 'CLOSE_POSITION'].includes(analysis.strategy)) {
         throw new Error('No asset specified in analysis');
       }
 
-      let response: CreatePositionResponse;
+      let response: any; // Relaxed type to handle close response
 
       // TP/SL Objects
       const tp = analysis.takeProfit ? { type: 'PERCENTAGE' as const, value: analysis.takeProfit } : undefined;
@@ -896,6 +941,10 @@ class TradingAgent {
           usdValue: analysis.suggestedAmount,
           leverage: analysis.suggestedLeverage,
           slippage: 0.01, // 1%
+        });
+      } else if (analysis.strategy === 'CLOSE_POSITION' && analysis.closePositionId) {
+        response = await pearClient.closePosition(analysis.closePositionId, {
+          executionType: 'MARKET',
         });
       } else {
         throw new Error('Invalid trade configuration');
@@ -1038,12 +1087,18 @@ class TradingAgent {
       // Analyze and get trade details with smart leverage
       const analysis = await this.analyze(command, userBalance);
       if (!analysis) {
+        let errorMsg = userBalance < 4 
+          ? `Insufficient balance ($${userBalance.toFixed(2)}). Minimum $4 required with 5x leverage.`
+          : 'Could not find suitable trade opportunity. Try again later.';
+
+        if (command.strategy === 'CLOSE_POSITION') {
+           errorMsg = "Couldn't find any matching open positions to close. Try specifying the asset (e.g. 'Close BTC').";
+        }
+
         return {
           command,
           analysis: null,
-          error: userBalance < 4 
-            ? `Insufficient balance ($${userBalance.toFixed(2)}). Minimum $4 required with 5x leverage.`
-            : 'Could not find suitable trade opportunity. Try again later.',
+          error: errorMsg,
           llmResponse: intent.response,
         };
       }
@@ -1145,6 +1200,15 @@ class TradingAgent {
           customParams: {
             longAssets,
             shortAssets,
+          },
+        };
+
+      case 'close_position':
+        return {
+          strategy: 'CLOSE_POSITION',
+          customParams: {
+            asset: intent.params.asset,
+            positionId: intent.params.positionId,
           },
         };
 

@@ -519,16 +519,34 @@ export function ProfileScreen() {
             ) : pearHistory.length > 0 ? (
               pearHistory.map((trade) => {
                 // Join all assets with + for basket display
-                const longAssets =
-                  trade.closedLongAssets?.map((a) => a.coin) ??
-                  trade.longAssets?.map((a) => a.coin) ??
-                  [];
-                const shortAssets =
-                  trade.closedShortAssets?.map((a) => a.coin) ??
-                  trade.shortAssets?.map((a) => a.coin) ??
-                  [];
-                const longAsset = longAssets.join("+") || "UNKNOWN";
-                const shortAsset = shortAssets.join("+") || "USDC";
+                // Helper to get assets from various possible fields
+                const getAssets = (
+                  closed?: { coin: string }[],
+                  active?: { coin: string }[],
+                  legacy?: string[],
+                ) => {
+                  // Prioritize the full position context (legacy strings) to show "BTC/SOL+LIT"
+                  if (legacy && legacy.length > 0) return legacy;
+                  if (closed && closed.length > 0)
+                    return closed.map((a) => a.coin);
+                  if (active && active.length > 0)
+                    return active.map((a) => a.coin);
+                  return [];
+                };
+
+                const longAssetsList = getAssets(
+                  trade.closedLongAssets,
+                  trade.longAssets,
+                  trade.positionLongAssets,
+                );
+                const shortAssetsList = getAssets(
+                  trade.closedShortAssets,
+                  trade.shortAssets,
+                  trade.positionShortAssets,
+                );
+
+                const longAsset = longAssetsList.join("+") || "UNKNOWN";
+                const shortAsset = shortAssetsList.join("+") || "USDC";
                 const pair = `${longAsset}/${shortAsset}`;
 
                 return (

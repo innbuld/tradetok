@@ -92,11 +92,19 @@ export function AgentChat({
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll to bottom
+  // Smart auto-scroll
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+    if (scrollRef.current) {
+      const { scrollTop, scrollHeight, clientHeight } = scrollRef.current;
+      const isNearBottom = scrollHeight - scrollTop - clientHeight < 150; // Increased threshold
+
+      if (isNearBottom || messages.length <= 1) {
+        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+      }
+    }
+  }, [messages, isProcessing, pendingAnalysis]);
 
   // Generate unique message ID
   const generateId = () =>
@@ -342,7 +350,10 @@ export function AgentChat({
         {isExpanded && (
           <>
             {/* Messages */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-4 max-h-[400px] min-h-[200px]">
+            <div
+              ref={scrollRef}
+              className="flex-1 overflow-y-auto p-4 space-y-4 max-h-[400px] min-h-[200px]"
+            >
               {messages.map((message) => (
                 <div
                   key={message.id}
@@ -638,6 +649,20 @@ export function AgentChat({
                 </div>
               ))}
 
+              {isProcessing && !pendingAnalysis && (
+                <div className="flex justify-start mb-4 animate-in fade-in duration-300">
+                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-primary to-purple-600 flex items-center justify-center shrink-0 mr-2 shadow-sm">
+                    <Bot className="w-5 h-5 text-white" />
+                  </div>
+                  <div className="max-w-[80%] p-3 rounded-2xl bg-secondary/80 rounded-tl-none border border-border/50">
+                    <div className="flex gap-1 items-center h-6 px-1">
+                      <div className="w-2 h-2 bg-primary/50 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
+                      <div className="w-2 h-2 bg-primary/50 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
+                      <div className="w-2 h-2 bg-primary/50 rounded-full animate-bounce"></div>
+                    </div>
+                  </div>
+                </div>
+              )}
               <div ref={messagesEndRef} />
             </div>
 

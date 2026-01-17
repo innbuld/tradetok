@@ -216,7 +216,7 @@ RESPOND WITH ONLY A JSON OBJECT, nothing else:`;
         generationConfig: {
           temperature: 0.2,
           topP: 0.8,
-          maxOutputTokens: 500,
+          maxOutputTokens: 4096,
         }
       };
 
