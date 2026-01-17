@@ -1,5 +1,4 @@
-// Updated Discover Screen with Top Pairs and Working Search
-
+// Updated Discover Screen with Top Pairs, Working Search, and Real Balance (Hyperliquid Direct)
 import { useState, useEffect, useMemo } from "react";
 import {
   Search,
@@ -11,9 +10,12 @@ import {
   RefreshCw,
   Star,
   ShieldAlert,
+  Wallet,
 } from "lucide-react";
+import { useAccount } from "wagmi";
 import { traders, trades } from "@/data/mockData";
 import { pearClient } from "@/lib/pearClient";
+import { hyperliquidClient } from "@/lib/hyperliquidClient";
 import { QuickTradeModal } from "@/components/QuickTradeModal";
 import { AgentWalletSetupModal } from "@/components/AgentWalletSetupModal";
 import { usePearAuthContext } from "@/contexts/PearAuthContext";
@@ -22,6 +24,8 @@ import type { Market, MarketsResponse } from "@/types/pear";
 
 export function DiscoverScreen() {
   const { isAuthenticated, agentWallet } = usePearAuthContext();
+  const { address } = useAccount();
+
   const [markets, setMarkets] = useState<MarketsResponse | null>(null);
   const [activeMarkets, setActiveMarkets] = useState<{
     topGainers: Market[];
@@ -36,6 +40,7 @@ export function DiscoverScreen() {
   const [selectedMarket, setSelectedMarket] = useState<Market | null>(null);
   const [showQuickTrade, setShowQuickTrade] = useState(false);
   const [showAgentSetup, setShowAgentSetup] = useState(false);
+  const [accountBalance, setAccountBalance] = useState<number | null>(null);
 
   const topTraders = traders.slice(0, 5);
   const lowRiskTrades = trades.filter((t) => t.riskLevel === "low").slice(0, 3);
@@ -49,15 +54,28 @@ export function DiscoverScreen() {
     setError(null);
 
     try {
-      // Fetch active markets - this has all the data we need
-      const active = await pearClient.getActiveMarkets();
+      // Parallel fetch for efficiency
+      // We fetch markets from Pear, but Balance from Hyperliquid Direct
+      const promises: Promise<any>[] = [pearClient.getActiveMarkets()];
+
+      if (isAuthenticated && address) {
+        promises.push(
+          hyperliquidClient.getPortfolio(address).catch((e) => {
+            console.error("Balance fetch warning:", e);
+            return null;
+          }),
+        );
+      }
+
+      const [active, balancePortfolio] = await Promise.all(promises);
+
+      // Update Markets
       setActiveMarkets({
         topGainers: active.topGainers || [],
         topLosers: active.topLosers || [],
         highlighted: active.highlighted || [],
       });
 
-      // Use active markets for top pairs too
       setMarkets({
         markets: active.active || [],
         total: active.active?.length || 0,
@@ -65,9 +83,19 @@ export function DiscoverScreen() {
         pageSize: active.active?.length || 0,
         totalPages: 1,
       });
+
+      // Update Balance if available
+      if (balancePortfolio) {
+        const val = balancePortfolio.accountValue;
+        setAccountBalance(typeof val === "number" ? val : 0);
+      } else if (isAuthenticated && !agentWallet) {
+        setAccountBalance(null);
+      }
     } catch (err) {
-      console.error("Failed to fetch markets:", err);
-      setError(err instanceof Error ? err.message : "Failed to load markets");
+      console.error("Failed to fetch data:", err);
+      if (!markets) {
+        setError(err instanceof Error ? err.message : "Failed to load data");
+      }
     } finally {
       setIsLoading(false);
     }
@@ -134,7 +162,7 @@ export function DiscoverScreen() {
   // Initial fetch
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [isAuthenticated, agentWallet, address]);
 
   // Format market for display
   const formatMarket = (market: Market) => {
@@ -276,11 +304,23 @@ export function DiscoverScreen() {
           <h1 className="text-xl font-bold">Discover</h1>
 
           <div className="flex items-center gap-2">
+            {/* Real Balance Display */}
+            {isAuthenticated && agentWallet && (
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-secondary rounded-xl border border-border mr-1 tap-scale">
+                <Wallet className="w-4 h-4 text-primary" />
+                <span className="font-mono font-semibold text-sm">
+                  {typeof accountBalance === "number"
+                    ? `$${accountBalance.toFixed(2)}`
+                    : "Loading..."}
+                </span>
+              </div>
+            )}
+
             {isAuthenticated && !agentWallet && (
               <Button
                 size="sm"
                 variant="destructive"
-                className="h-8 text-xs gap-1"
+                className="h-9 text-xs gap-1"
                 onClick={() => setShowAgentSetup(true)}
               >
                 <ShieldAlert className="w-3 h-3" />

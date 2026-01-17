@@ -1,5 +1,4 @@
-// Portfolio Screen with Real Pear Protocol Integration
-
+// Portfolio Screen with Real Balance Integration (Wallet + Hyperliquid)
 import { useState, useEffect } from "react";
 import {
   Volume2,
@@ -10,7 +9,10 @@ import {
   RefreshCw,
   Wallet,
   AlertCircle,
+  Smartphone,
+  Globe,
 } from "lucide-react";
+import { useAccount, useBalance } from "wagmi";
 import { positions as mockPositions } from "@/data/mockData";
 import {
   usePearPositions,
@@ -19,14 +21,31 @@ import {
 } from "@/hooks/usePear";
 import { usePearAuthContext } from "@/contexts/PearAuthContext";
 import { pearClient } from "@/lib/pearClient";
+import { hyperliquidClient } from "@/lib/hyperliquidClient";
 import { useToast } from "@/hooks/use-toast";
-import type { OpenPosition, TradeHistoryItem } from "@/types/pear";
+import type { OpenPosition } from "@/types/pear";
+
+// Arbitrum One USDC Address
+const USDC_ADDRESS = "0xaf88d065e77c8cC2239327C5EDb3A432268e5831";
 
 type Tab = "active" | "history";
 
 export function PortfolioScreen() {
   const { toast } = useToast();
   const { isAuthenticated, account } = usePearAuthContext();
+  const { address } = useAccount();
+
+  // Real Wallet Balance (Arbitrum USDC)
+  const { data: walletBalance, refetch: refetchWallet } = useBalance({
+    address,
+    token: USDC_ADDRESS,
+    chainId: 42161,
+  });
+
+  // Real Hyperliquid Balance
+  const [hlBalance, setHlBalance] = useState<number>(0);
+  const [hlLoading, setHlLoading] = useState(false);
+
   const {
     positions: pearPositions,
     isLoading: positionsLoading,
@@ -50,12 +69,32 @@ export function PortfolioScreen() {
     null,
   );
 
-  // Use real data if authenticated, otherwise mock data
-  const hasRealData = isAuthenticated && pearPositions.length > 0;
+  // Fetch Hyperliquid Balance
+  const fetchHlBalance = async () => {
+    if (!address) return;
+    setHlLoading(true);
+    try {
+      const data = await hyperliquidClient.getPortfolio(address);
+      setHlBalance(data.accountValue);
+    } catch (e) {
+      console.error("Failed to fetch HL balance", e);
+    } finally {
+      setHlLoading(false);
+    }
+  };
 
-  // Calculate totals from real data
-  const totalValue = account?.accountValue ?? 12450.32;
-  const unrealizedPnl = account?.unrealizedPnl ?? 342.18;
+  useEffect(() => {
+    fetchHlBalance();
+  }, [address]);
+
+  // Calculate Totals
+  // If authenticated, use real values. If not, use 0 (or fallback to demo if desired, but user wants accuracy)
+  const walletUsd = isAuthenticated ? Number(walletBalance?.formatted || 0) : 0;
+  const hyperliquidUsd = isAuthenticated ? hlBalance : 0;
+  const totalValue = walletUsd + hyperliquidUsd;
+
+  // Derived stats
+  const unrealizedPnl = account?.unrealizedPnl ?? 0;
   const marginUsed = account?.marginUsed ?? 0;
 
   // Portfolio stats from real data
@@ -70,10 +109,10 @@ export function PortfolioScreen() {
         openInterest: portfolio.overall.currentOpenInterest,
       }
     : {
-        totalPnl: "+$1,234.56",
-        winRate: "67%",
-        totalTrades: 68,
-        openInterest: 8500,
+        totalPnl: "$0.00",
+        winRate: "0%",
+        totalTrades: 0,
+        openInterest: 0,
       };
 
   // Handle position close
@@ -93,6 +132,7 @@ export function PortfolioScreen() {
       // Refresh positions
       await refetchPositions();
       await refetchAccount();
+      fetchHlBalance(); // Refresh balance too
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Failed to close position";
@@ -109,7 +149,13 @@ export function PortfolioScreen() {
 
   // Refresh data
   const handleRefresh = async () => {
-    await Promise.all([refetchPositions(), refetchAccount(), refetchHistory()]);
+    await Promise.all([
+      refetchPositions(),
+      refetchAccount(),
+      refetchHistory(),
+      refetchWallet(),
+      fetchHlBalance(),
+    ]);
   };
 
   // Format position for display
@@ -152,96 +198,16 @@ export function PortfolioScreen() {
         <div className="bg-gradient-to-b from-card to-background px-4 pt-6 pb-8">
           <h1 className="text-xl font-bold mb-6">Portfolio</h1>
 
-          {/* Total Value */}
-          <div className="mb-4">
-            <p className="text-sm text-muted-foreground mb-1">Total Value</p>
-            <p className="text-4xl font-bold">${totalValue.toLocaleString()}</p>
-          </div>
-
-          {/* Change */}
-          <div className="flex items-center gap-4 mb-6">
-            <div className="flex items-center gap-2">
-              <TrendingUp className="w-5 h-5 text-success" />
-              <span className="text-success font-semibold">
-                +${unrealizedPnl.toFixed(2)}
-              </span>
+          {/* Connect Wallet CTA */}
+          <div className="flex flex-col items-center justify-center py-16 px-4">
+            <div className="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center mb-6">
+              <Wallet className="w-10 h-10 text-primary" />
             </div>
-            <span className="px-2 py-1 rounded-lg bg-success/20 text-success text-sm font-semibold">
-              +2.83%
-            </span>
-            <span className="text-sm text-muted-foreground">24h</span>
+            <h2 className="text-xl font-bold mb-2">Connect Wallet</h2>
+            <p className="text-muted-foreground text-center mb-6">
+              Connect your wallet to view your real positions and trade history
+            </p>
           </div>
-
-          {/* Listen Button */}
-          <button className="flex items-center gap-2 px-4 py-2 rounded-xl bg-secondary tap-scale">
-            <Volume2 className="w-5 h-5 text-primary" />
-            <span className="font-medium">Listen to Summary</span>
-          </button>
-        </div>
-
-        {/* Connect Wallet CTA */}
-        <div className="flex flex-col items-center justify-center py-16 px-4">
-          <div className="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center mb-6">
-            <Wallet className="w-10 h-10 text-primary" />
-          </div>
-          <h2 className="text-xl font-bold mb-2">Connect Wallet</h2>
-          <p className="text-muted-foreground text-center mb-6">
-            Connect your wallet to view your real positions and trade history
-          </p>
-          <p className="text-sm text-muted-foreground">Demo data shown below</p>
-        </div>
-
-        {/* Demo Positions */}
-        <div className="px-4 py-4 space-y-3">
-          {mockPositions.map((position) => {
-            const isProfitable = position.pnlValue > 0;
-
-            return (
-              <div
-                key={position.id}
-                className="relative overflow-hidden rounded-xl opacity-60"
-              >
-                <div className="bg-card border border-border rounded-xl p-4">
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center gap-3">
-                      <span className="text-lg font-bold">{position.pair}</span>
-                      <span
-                        className={`px-2 py-0.5 rounded text-xs font-bold ${
-                          position.direction === "LONG"
-                            ? "bg-success/20 text-success"
-                            : "bg-destructive/20 text-destructive"
-                        }`}
-                      >
-                        {position.direction}
-                      </span>
-                    </div>
-                    <span
-                      className={`text-xl font-bold ${
-                        isProfitable ? "text-success" : "text-destructive"
-                      }`}
-                    >
-                      {position.pnl}
-                    </span>
-                  </div>
-
-                  <div className="grid grid-cols-3 gap-4 text-sm">
-                    <div>
-                      <p className="text-muted-foreground mb-0.5">Entry</p>
-                      <p className="font-medium">${position.entry}</p>
-                    </div>
-                    <div>
-                      <p className="text-muted-foreground mb-0.5">Current</p>
-                      <p className="font-medium">${position.current}</p>
-                    </div>
-                    <div>
-                      <p className="text-muted-foreground mb-0.5">Size</p>
-                      <p className="font-medium">{position.size}</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
         </div>
       </div>
     );
@@ -255,25 +221,62 @@ export function PortfolioScreen() {
           <h1 className="text-xl font-bold">Portfolio</h1>
           <button
             onClick={handleRefresh}
-            disabled={positionsLoading || accountLoading}
+            disabled={positionsLoading || accountLoading || hlLoading}
             className="p-2 rounded-xl bg-secondary tap-scale disabled:opacity-50"
           >
             <RefreshCw
-              className={`w-5 h-5 ${positionsLoading || accountLoading ? "animate-spin" : ""}`}
+              className={`w-5 h-5 ${positionsLoading || accountLoading || hlLoading ? "animate-spin" : ""}`}
             />
           </button>
         </div>
 
         {/* Total Value */}
-        <div className="mb-4">
-          <p className="text-sm text-muted-foreground mb-1">Account Value</p>
-          <p className="text-4xl font-bold">
+        <div className="mb-6">
+          <p className="text-sm text-muted-foreground mb-1">Total Net Worth</p>
+          <p className="text-4xl font-bold mb-4">
             $
             {totalValue.toLocaleString(undefined, {
               minimumFractionDigits: 2,
               maximumFractionDigits: 2,
             })}
           </p>
+
+          {/* Detailed Breakdown */}
+          <div className="grid grid-cols-2 gap-3">
+            {/* Wallet Balance */}
+            <div className="bg-secondary/50 rounded-xl p-3 border border-border/50">
+              <div className="flex items-center gap-2 mb-1">
+                <Wallet className="w-4 h-4 text-muted-foreground" />
+                <span className="text-xs text-muted-foreground">
+                  Arbitrum USDC
+                </span>
+              </div>
+              <p className="text-lg font-semibold">
+                $
+                {walletUsd.toLocaleString(undefined, {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}
+              </p>
+            </div>
+
+            {/* Hyperliquid Balance */}
+            <div className="bg-secondary/50 rounded-xl p-3 border border-border/50">
+              <div className="flex items-center gap-2 mb-1">
+                <Globe className="w-4 h-4 text-blue-500" />
+                <span className="text-xs text-muted-foreground">
+                  Hyperliquid
+                </span>
+              </div>
+              <p className="text-lg font-semibold">
+                $
+                {hyperliquidUsd.toLocaleString(undefined, {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}
+              </p>
+            </div>
+          </div>
         </div>
 
         {/* Unrealized P&L */}
@@ -454,24 +457,6 @@ export function PortfolioScreen() {
                         <p className="font-medium">{formatted.marginUsed}</p>
                       </div>
                     </div>
-
-                    {/* TP/SL Info */}
-                    {(position.stopLoss || position.takeProfit) && (
-                      <div className="flex gap-3 mt-3 pt-3 border-t border-border">
-                        {position.stopLoss && (
-                          <div className="flex items-center gap-1 text-xs text-destructive">
-                            <TrendingDown className="w-3 h-3" />
-                            <span>SL: {position.stopLoss.value}%</span>
-                          </div>
-                        )}
-                        {position.takeProfit && (
-                          <div className="flex items-center gap-1 text-xs text-success">
-                            <TrendingUp className="w-3 h-3" />
-                            <span>TP: {position.takeProfit.value}%</span>
-                          </div>
-                        )}
-                      </div>
-                    )}
                   </div>
                 </div>
               );
