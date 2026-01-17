@@ -1,0 +1,220 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* TradeTok Design System - Green & Black Theme
+   All colors MUST be HSL.
+*/
+
+@layer base {
+  :root {
+    /* Dark mode only - set as default */
+    --background: 0 0% 0%;
+    --foreground: 0 0% 100%;
+
+    --card: 220 14% 7%;
+    --card-foreground: 0 0% 100%;
+
+    --popover: 220 14% 7%;
+    --popover-foreground: 0 0% 100%;
+
+    /* Primary: Light Green */
+    --primary: 142 69% 58%;
+    --primary-foreground: 0 0% 0%;
+
+    /* Secondary: Muted darker surface */
+    --secondary: 220 13% 12%;
+    --secondary-foreground: 0 0% 100%;
+
+    --muted: 220 13% 18%;
+    --muted-foreground: 220 9% 64%;
+
+    --accent: 142 69% 58%;
+    --accent-foreground: 0 0% 0%;
+
+    /* Destructive: Red for SHORT/losses */
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    /* Success: Green for LONG/profits */
+    --success: 142 69% 58%;
+    --success-foreground: 0 0% 0%;
+
+    /* Warning: Yellow/amber for medium risk */
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 0%;
+
+    --border: 220 13% 18%;
+    --input: 220 13% 18%;
+    --ring: 142 69% 58%;
+
+    --radius: 0.875rem;
+
+    /* Sidebar - not used but keep for compatibility */
+    --sidebar-background: 0 0% 4%;
+    --sidebar-foreground: 0 0% 100%;
+    --sidebar-primary: 142 69% 58%;
+    --sidebar-primary-foreground: 0 0% 0%;
+    --sidebar-accent: 220 13% 12%;
+    --sidebar-accent-foreground: 0 0% 100%;
+    --sidebar-border: 220 13% 18%;
+    --sidebar-ring: 142 69% 58%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
+}
+
+@layer utilities {
+  /* Gradient utilities */
+  .gradient-primary {
+    background: linear-gradient(135deg, hsl(142 69% 58%) 0%, hsl(142 76% 42%) 100%);
+  }
+
+  .gradient-primary-soft {
+    background: linear-gradient(135deg, hsl(142 69% 58% / 0.2) 0%, hsl(142 76% 42% / 0.1) 100%);
+  }
+
+  /* Voice button glow */
+  .voice-glow {
+    box-shadow: 0 0 20px hsl(142 69% 58% / 0.4), 0 0 40px hsl(142 69% 58% / 0.2);
+  }
+
+  /* Card styles */
+  .trade-card-gradient {
+    background: linear-gradient(180deg, hsl(220 14% 10%) 0%, hsl(220 14% 7%) 100%);
+  }
+
+  /* Tap feedback */
+  .tap-scale {
+    @apply transition-transform duration-150 active:scale-95;
+  }
+
+  /* Hide scrollbar */
+  .hide-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .hide-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Safe area padding for mobile */
+  .safe-bottom {
+    padding-bottom: max(env(safe-area-inset-bottom), 1rem);
+  }
+}
+
+/* Waveform animation */
+@keyframes waveform {
+  0%, 100% {
+    transform: scaleY(0.3);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+.waveform-bar {
+  animation: waveform 0.8s ease-in-out infinite;
+}
+
+/* Pulse animation for voice button */
+@keyframes voice-pulse {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 0 20px hsl(142 69% 58% / 0.4);
+  }
+  50% {
+    transform: scale(1.05);
+    box-shadow: 0 0 30px hsl(142 69% 58% / 0.6), 0 0 50px hsl(142 69% 58% / 0.3);
+  }
+}
+
+.voice-pulse {
+  animation: voice-pulse 2s ease-in-out infinite;
+}
+
+/* Listening animation */
+@keyframes listening-pulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.2);
+    opacity: 0.7;
+  }
+}
+
+.listening-pulse {
+  animation: listening-pulse 1.5s ease-in-out infinite;
+}
+
+/* Slide up animation */
+@keyframes slide-up {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.animate-slide-up {
+  animation: slide-up 0.3s ease-out forwards;
+}
+
+/* Slide in from right */
+@keyframes slide-in-right {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+.animate-slide-in-right {
+  animation: slide-in-right 0.3s ease-out forwards;
+}
+
+/* Fade in */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.2s ease-out forwards;
+}
+
+/* Fade in up */
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in-up {
+  animation: fade-in-up 0.4s ease-out forwards;
+}
