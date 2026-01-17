@@ -9,6 +9,13 @@ export interface HyperliquidPortfolio {
   withdrawable: number;
 }
 
+export interface AssetMeta {
+  name: string;
+  szDecimals: number;
+  maxLeverage: number;
+  onlyIsolated: boolean;
+}
+
 export const hyperliquidClient = {
   async getPortfolio(address: string): Promise<HyperliquidPortfolio> {
     try {
@@ -50,5 +57,65 @@ export const hyperliquidClient = {
         withdrawable: 0
       };
     }
+  },
+
+  async getMaxBuilderFee(user: string, builder: string): Promise<number> {
+      try {
+          const response = await fetch(HYPERLIQUID_INFO_URL, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                  type: "maxBuilderFee",
+                  user: user,
+                  builder: builder
+              })
+          });
+          
+          if (!response.ok) return 0;
+          
+          const data = await response.json();
+          // Hyperliquid returns the max fee rate allowed as a number (e.g. 1 is 0.001% or similar scale)
+          // If null or undefined, not approved.
+          return typeof data === 'number' ? data : 0;
+      } catch (err) {
+          console.error("Failed to check builder fee:", err);
+          return 0;
+      }
+  },
+
+  // Fetch Asset Metadata (szDecimals, etc)
+  async getMeta(): Promise<AssetMeta[]> {
+      try {
+          const response = await fetch(HYPERLIQUID_INFO_URL, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ type: "meta" })
+          });
+          
+          if (!response.ok) throw new Error("Failed to fetch meta");
+          
+          const data = await response.json();
+          return data.universe || [];
+      } catch (err) {
+          console.error("Failed to fetch asset meta:", err);
+          return [];
+      }
+  },
+
+  // Fetch Current Prices (allMids)
+  async getAllMids(): Promise<Record<string, number>> {
+      try {
+        const response = await fetch(HYPERLIQUID_INFO_URL, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ type: "allMids" })
+        });
+        
+        if (!response.ok) return {};
+        return await response.json();
+      } catch (err) {
+          console.error("Failed to fetch mids:", err);
+          return {};
+      }
   }
 };
