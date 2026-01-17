@@ -4,7 +4,7 @@
 const HYPERLIQUID_INFO_URL = "https://api.hyperliquid.xyz/info";
 const HYPERLIQUID_EXCHANGE_URL = "https://api.hyperliquid.xyz/exchange";
 
-// EIP-712 Types for Withdrawal
+// EIP-712 Types for Withdrawal (matching Hyperliquid's Rust implementation)
 export const WITHDRAW_TYPES = {
   "HyperliquidTransaction:Withdraw": [
     { name: "hyperliquidChain", type: "string" },
@@ -14,6 +14,8 @@ export const WITHDRAW_TYPES = {
   ],
 } as const;
 
+// Domain for user-signed actions like withdrawals, transfers, etc.
+// Must be "HyperliquidSignTransaction" per the Hyperliquid documentation
 export const WITHDRAW_DOMAIN = {
   name: "HyperliquidSignTransaction",
   version: "1",

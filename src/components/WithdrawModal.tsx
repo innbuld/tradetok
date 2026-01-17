@@ -54,15 +54,21 @@ export function WithdrawModal({
     try {
       const timestamp = Date.now();
 
+      // CRITICAL: Lowercase the destination address per Hyperliquid docs
+      // "It is recommended to lowercase any address before signing and sending"
+      const destinationAddress = address.toLowerCase();
+
       // Build the message for EIP-712 signing
       const message = {
         hyperliquidChain: "Mainnet" as const,
-        destination: address,
+        destination: destinationAddress,
         amount: amount,
         time: BigInt(timestamp),
       };
 
       // Sign the typed data
+      console.log("[Withdraw] Signing with address:", address);
+      console.log("[Withdraw] Destination (lowercased):", destinationAddress);
       const signature = await signTypedDataAsync({
         account: address,
         domain: WITHDRAW_DOMAIN,
@@ -71,12 +77,21 @@ export function WithdrawModal({
         message,
       });
 
+      console.log("[Withdraw] Got signature:", signature);
+
       // Parse the signature into r, s, v components
       const r = signature.slice(0, 66);
       const s = "0x" + signature.slice(66, 130);
-      const v = parseInt(signature.slice(130, 132), 16);
+      let v = parseInt(signature.slice(130, 132), 16);
 
-      // Submit to Hyperliquid
+      // Ensure v is in the correct format (27 or 28)
+      if (v < 27) {
+        v += 27;
+      }
+
+      console.log("[Withdraw] Parsed signature:", { r, s, v });
+
+      // Submit to Hyperliquid (also use lowercase destination)
       const result = await hyperliquidClient.submitWithdraw(
         {
           type: "withdraw3",
@@ -84,7 +99,7 @@ export function WithdrawModal({
           signatureChainId: "0xa4b1", // Arbitrum
           amount: amount,
           time: timestamp,
-          destination: address,
+          destination: destinationAddress,
         },
         timestamp,
         { r, s, v },

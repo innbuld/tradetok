@@ -169,7 +169,7 @@ class GeminiParser {
 
   constructor() {
     this.apiKey = GEMINI_API_KEY || '';
-    console.log('[GeminiParser] API key loaded:', this.apiKey ? 'Yes' : 'No');
+    console.log('[ai]  loaded:', this.apiKey ? 'Yes' : 'No');
   }
 
   /**
@@ -184,11 +184,11 @@ class GeminiParser {
    */
   async parse(userInput: string, context?: ChatContext): Promise<ParsedIntent | null> {
     if (!this.isAvailable()) {
-      console.log('[GeminiParser] API key not available, skipping LLM');
+      console.log('aiAPI key not available, skipping LLM');
       return null;
     }
 
-    console.log('[GeminiParser] Processing:', userInput);
+    console.log('aiProcessing:', userInput);
 
     try {
       // Build context string
@@ -220,7 +220,7 @@ RESPOND WITH ONLY A JSON OBJECT, nothing else:`;
         }
       };
 
-      console.log('[GeminiParser] Calling API...');
+      console.log('aiCalling API...');
       
       const response = await fetch(`${this.MODEL_URL}?key=${this.apiKey}`, {
         method: 'POST',
@@ -232,21 +232,21 @@ RESPOND WITH ONLY A JSON OBJECT, nothing else:`;
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error('[GeminiParser] API error:', response.status, errorText);
+        console.error('aiAPI error:', response.status, errorText);
         return null;
       }
 
       const data = await response.json();
-      console.log('[GeminiParser] Raw response:', JSON.stringify(data).slice(0, 500));
+      console.log('aiRaw response:', JSON.stringify(data).slice(0, 500));
       
       // Extract text from response
       const responseText = data.candidates?.[0]?.content?.parts?.[0]?.text;
       if (!responseText) {
-        console.error('[GeminiParser] No response text from Gemini');
+        console.error('aiNo response text from Gemini');
         return null;
       }
 
-      console.log('[GeminiParser] Response text:', responseText);
+      console.log('aiResponse text:', responseText);
 
       // Parse JSON from response (handle potential markdown wrapping)
       let jsonStr = responseText.trim();
@@ -262,12 +262,12 @@ RESPOND WITH ONLY A JSON OBJECT, nothing else:`;
         jsonStr = jsonMatch[0];
       }
 
-      console.log('[GeminiParser] Parsing JSON:', jsonStr);
+      console.log('aiParsing JSON:', jsonStr);
       const parsed: ParsedIntent = JSON.parse(jsonStr);
 
       // Validate required fields
       if (!parsed.action || !parsed.response) {
-        console.error('[GeminiParser] Invalid parsed response:', parsed);
+        console.error('aiInvalid parsed response:', parsed);
         return null;
       }
 
@@ -275,10 +275,10 @@ RESPOND WITH ONLY A JSON OBJECT, nothing else:`;
       this.addToHistory('user', userInput);
       this.addToHistory('model', parsed.response);
 
-      console.log('[GeminiParser] Successfully parsed:', parsed.action);
+      console.log('aiSuccessfully parsed:', parsed.action);
       return parsed;
     } catch (error) {
-      console.error('[GeminiParser] Error:', error);
+      console.error('aiError:', error);
       return null;
     }
   }

@@ -13,18 +13,22 @@ import {
   Wallet,
 } from "lucide-react";
 import { useAccount } from "wagmi";
-import { traders, trades } from "@/data/mockData";
+import { useNavigate } from "react-router-dom";
+import { trades } from "@/data/mockData";
 import { pearClient } from "@/lib/pearClient";
 import { hyperliquidClient } from "@/lib/hyperliquidClient";
 import { QuickTradeModal } from "@/components/QuickTradeModal";
 import { AgentWalletSetupModal } from "@/components/AgentWalletSetupModal";
 import { usePearAuthContext } from "@/contexts/PearAuthContext";
 import { Button } from "@/components/ui/button";
+import { db } from "@/lib/db";
 import type { Market, MarketsResponse } from "@/types/pear";
+import type { User } from "@/types/database";
 
 export function DiscoverScreen() {
   const { isAuthenticated, agentWallet } = usePearAuthContext();
   const { address } = useAccount();
+  const navigate = useNavigate();
 
   const [markets, setMarkets] = useState<MarketsResponse | null>(null);
   const [activeMarkets, setActiveMarkets] = useState<{
@@ -41,8 +45,8 @@ export function DiscoverScreen() {
   const [showQuickTrade, setShowQuickTrade] = useState(false);
   const [showAgentSetup, setShowAgentSetup] = useState(false);
   const [accountBalance, setAccountBalance] = useState<number | null>(null);
+  const [topTraders, setTopTraders] = useState<User[]>([]);
 
-  const topTraders = traders.slice(0, 5);
   const lowRiskTrades = trades.filter((t) => t.riskLevel === "low").slice(0, 3);
   const highRiskTrades = trades
     .filter((t) => t.riskLevel === "high")
@@ -91,6 +95,10 @@ export function DiscoverScreen() {
       } else if (isAuthenticated && !agentWallet) {
         setAccountBalance(null);
       }
+
+      // Fetch top traders from database
+      const traders = await db.users.getTopTraders(5);
+      setTopTraders(traders);
     } catch (err) {
       console.error("Failed to fetch data:", err);
       if (!markets) {
@@ -707,38 +715,57 @@ export function DiscoverScreen() {
               </button>
             </div>
 
-            <div className="space-y-3">
-              {topTraders.map((trader, index) => (
-                <div
-                  key={trader.id}
-                  className="flex items-center gap-3 bg-card border border-border rounded-xl p-3 tap-scale"
-                >
-                  <span className="text-lg font-bold text-muted-foreground w-6">
-                    #{index + 1}
-                  </span>
-                  <div className="w-12 h-12 rounded-full bg-secondary flex items-center justify-center text-xl">
-                    {trader.avatar}
-                  </div>
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="font-semibold">{trader.username}</span>
-                      {trader.verified && (
-                        <BadgeCheck className="w-4 h-4 text-primary" />
-                      )}
+            {topTraders.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">
+                <p>No traders yet. Be the first!</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {topTraders.map((trader, index) => (
+                  <div
+                    key={trader.id}
+                    onClick={() => navigate(`/profile/${trader.id}`)}
+                    className="flex items-center gap-3 bg-card border border-border rounded-xl p-3 tap-scale cursor-pointer hover:border-primary transition-colors"
+                  >
+                    <span className="text-lg font-bold text-muted-foreground w-6">
+                      #{index + 1}
+                    </span>
+                    <div className="w-12 h-12 rounded-full bg-secondary flex items-center justify-center text-xl">
+                      {trader.avatar_emoji || "🐻"}
                     </div>
-                    <div className="flex items-center gap-3 text-sm">
-                      <span className="text-success">{trader.winRate} win</span>
-                      <span className="text-muted-foreground">
-                        {trader.followers}
-                      </span>
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold">
+                          @{trader.username}
+                        </span>
+                        {trader.is_verified && (
+                          <BadgeCheck className="w-4 h-4 text-primary" />
+                        )}
+                      </div>
+                      <div className="flex items-center gap-3 text-sm">
+                        <span className="text-success">
+                          {(trader.win_rate || 0).toFixed(0)}% win
+                        </span>
+                        <span className="text-muted-foreground">
+                          {trader.total_followers || 0} followers
+                        </span>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p
+                        className={`font-mono font-bold ${(trader.total_pnl || 0) >= 0 ? "text-success" : "text-destructive"}`}
+                      >
+                        {(trader.total_pnl || 0) >= 0 ? "+" : ""}$
+                        {(trader.total_pnl || 0).toFixed(2)}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {trader.total_trades || 0} trades
+                      </p>
                     </div>
                   </div>
-                  <button className="px-3 py-1.5 rounded-full border border-primary text-primary text-sm font-medium tap-scale hover:bg-primary hover:text-primary-foreground transition-colors">
-                    Follow
-                  </button>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </section>
 
           {/* Hot Pairs */}
