@@ -24,6 +24,8 @@ export interface AgentCommand {
   strategy: AgentStrategy;
   amount?: number;
   leverage?: number;
+  takeProfit?: number; // Percentage
+  stopLoss?: number;   // Percentage
   customParams?: {
     asset?: string;
     shortAsset?: string;
@@ -51,6 +53,8 @@ export interface AgentAnalysis {
   };
   suggestedAmount: number;
   suggestedLeverage: number;
+  takeProfit?: number;
+  stopLoss?: number;
 }
 
 export interface AgentExecutionResult {
@@ -755,6 +759,8 @@ class TradingAgent {
           reason: `Pair trade: Long ${longAsset} / Short ${shortAsset}. Using ${tradeParams.leverage}x leverage.`,
           suggestedAmount: tradeParams.amount,
           suggestedLeverage: tradeParams.leverage,
+          takeProfit: command.takeProfit,
+          stopLoss: command.stopLoss,
         };
       }
 
@@ -805,6 +811,8 @@ class TradingAgent {
           reason: `Basket trade: ${pairName}. Using ${tradeParams.leverage}x leverage.`,
           suggestedAmount: tradeParams.amount,
           suggestedLeverage: tradeParams.leverage,
+          takeProfit: command.takeProfit,
+          stopLoss: command.stopLoss,
         };
       }
 
@@ -827,6 +835,11 @@ class TradingAgent {
 
       let response: CreatePositionResponse;
 
+      // TP/SL Objects
+      const tp = analysis.takeProfit ? { type: 'PERCENTAGE' as const, value: analysis.takeProfit } : undefined;
+      const sl = analysis.stopLoss ? { type: 'PERCENTAGE' as const, value: analysis.stopLoss } : undefined;
+
+
       // Check if this is a pair trade
       if (analysis.strategy === 'PAIR_TRADE' && analysis.shortAsset && asset) {
         // Pair trade: Long asset, Short shortAsset
@@ -838,6 +851,8 @@ class TradingAgent {
           longAssets: [{ asset: asset, weight: 0.5 }],
           shortAssets: [{ asset: analysis.shortAsset, weight: 0.5 }],
           slippage: 0.1,
+          takeProfit: tp,
+          stopLoss: sl,
         });
       } else if (analysis.strategy === 'BASKET_TRADE') {
         // Basket trade with multiple assets
@@ -870,6 +885,8 @@ class TradingAgent {
           longAssets: longAssets.map(a => ({ asset: a, weight: longAssetWeight })),
           shortAssets: shortAssets.map(a => ({ asset: a, weight: shortAssetWeight })),
           slippage: 0.1,
+          takeProfit: tp,
+          stopLoss: sl,
         });
       } else if (asset) {
         // Directional trade
@@ -1054,6 +1071,8 @@ class TradingAgent {
           strategy: 'LONG_TOP_GAINER',
           amount: intent.params.amount,
           leverage: intent.params.leverage,
+          takeProfit: intent.params.takeProfit,
+          stopLoss: intent.params.stopLoss,
         };
 
       case 'short_top_loser':
@@ -1076,6 +1095,8 @@ class TradingAgent {
           strategy: 'CUSTOM',
           amount: intent.params.amount,
           leverage: intent.params.leverage,
+          takeProfit: intent.params.takeProfit,
+          stopLoss: intent.params.stopLoss,
           customParams: {
             asset: intent.params.asset,
             direction: 'LONG',
@@ -1088,6 +1109,8 @@ class TradingAgent {
           strategy: 'CUSTOM',
           amount: intent.params.amount,
           leverage: intent.params.leverage,
+          takeProfit: intent.params.takeProfit,
+          stopLoss: intent.params.stopLoss,
           customParams: {
             asset: intent.params.asset,
             direction: 'SHORT',
@@ -1100,6 +1123,8 @@ class TradingAgent {
           strategy: 'PAIR_TRADE',
           amount: intent.params.amount,
           leverage: intent.params.leverage,
+          takeProfit: intent.params.takeProfit,
+          stopLoss: intent.params.stopLoss,
           customParams: {
             asset: intent.params.asset,        // Long this
             shortAsset: intent.params.shortAsset, // Short this
@@ -1115,6 +1140,8 @@ class TradingAgent {
           strategy: 'BASKET_TRADE',
           amount: intent.params.amount,
           leverage: intent.params.leverage,
+          takeProfit: intent.params.takeProfit,
+          stopLoss: intent.params.stopLoss,
           customParams: {
             longAssets,
             shortAssets,

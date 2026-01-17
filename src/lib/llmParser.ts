@@ -78,6 +78,11 @@ AVAILABLE ACTIONS:
 9. check_balance - Check account balance or available funds
 10. close_position - Close a trading position
 10. search_trades - Find or filter trades
+
+PARAMETER RULES:
+- Extract 'takeProfit' (TP) and 'stopLoss' (SL) as percentages (numbers).
+- Example: "tp 50%"Or "take profit 50" -> takeProfit: 50
+- Example: "sl 10%" or "stop loss 10" -> stopLoss: 10
 11. market_analysis - Analyze market conditions or trending coins
 12. explain - Explain trading concepts
 13. greeting - Respond to greetings (hi, hello, hey)
@@ -133,6 +138,9 @@ User: "long BTC short ETH" or "long btc and short eth"
 
 User: "pair BTC/SOL with $50"
 {"action":"pair_trade","params":{"asset":"BTC","shortAsset":"SOL","amount":50},"confidence":0.95,"requiresConfirmation":false,"response":"📊 Setting up a $50 pair trade: Long BTC / Short SOL..."}
+
+User: "pair BTC/ETH tp 50% sl 10%"
+{"action":"pair_trade","params":{"asset":"BTC","shortAsset":"ETH","takeProfit":50,"stopLoss":10},"confidence":0.95,"requiresConfirmation":false,"response":"📊 Pair trade BTC/ETH with TP 50% and SL 10%."}
 
 User: "trade BTC against SOL" or "bet BTC vs SOL"
 {"action":"pair_trade","params":{"asset":"BTC","shortAsset":"SOL"},"confidence":0.9,"requiresConfirmation":false,"response":"📊 Creating a pair trade: Long BTC / Short SOL - betting BTC outperforms SOL!"}
