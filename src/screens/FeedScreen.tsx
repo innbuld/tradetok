@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback } from "react";
-import { Filter, Plus, RefreshCw, TrendingUp } from "lucide-react";
+import { Filter, Plus, RefreshCw, TrendingUp, Bot } from "lucide-react";
 import { SocialTradePost } from "@/components/SocialTradePost";
 import { CopyTradeModal } from "@/components/CopyTradeModal";
 import { CreateTradeModal } from "@/components/CreateTradeModal";
 import { BasketTradeModal } from "@/components/BasketTradeModal";
 import { FilterDrawer } from "@/components/FilterDrawer";
 import { WalletConnectButton } from "@/components/WalletConnectButton";
+import { AgentChat } from "@/components/AgentChat";
 import { usePearAuthContext } from "@/contexts/PearAuthContext";
 import { db } from "@/lib/db";
 import type { TradePostWithCreator, User } from "@/types/database";
@@ -27,6 +28,7 @@ export function FeedScreen() {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isBasketOpen, setIsBasketOpen] = useState(false);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const [isAgentExpanded, setIsAgentExpanded] = useState(false);
 
   // User liked posts (for optimistic UI)
   const [likedPosts, setLikedPosts] = useState<Set<string>>(new Set());
@@ -155,6 +157,20 @@ export function FeedScreen() {
             TradeTok
           </h1>
           <div className="flex items-center gap-2">
+            {/* AI Agent Button */}
+            <button
+              onClick={() => setIsAgentExpanded(!isAgentExpanded)}
+              className={`relative p-2 rounded-full tap-scale transition-all ${
+                isAgentExpanded
+                  ? "bg-primary text-primary-foreground shadow-lg shadow-primary/30"
+                  : "bg-gradient-to-br from-primary/20 to-purple-500/20 hover:from-primary/30 hover:to-purple-500/30 border border-primary/30"
+              }`}
+            >
+              <Bot className="w-5 h-5" />
+              {!isAgentExpanded && (
+                <span className="absolute -top-1 -right-1 w-3 h-3 bg-emerald-500 rounded-full border-2 border-background animate-pulse" />
+              )}
+            </button>
             <WalletConnectButton compact />
             <button
               onClick={() => setIsFilterOpen(true)}
@@ -189,6 +205,17 @@ export function FeedScreen() {
           </button>
         </div>
       </div>
+
+      {/* AI Agent Chat Panel */}
+      {isAgentExpanded && (
+        <div className="px-4 py-3 animate-in slide-in-from-top-4 duration-300">
+          <AgentChat
+            isExpanded={isAgentExpanded}
+            onToggleExpand={() => setIsAgentExpanded(!isAgentExpanded)}
+            onClose={() => setIsAgentExpanded(false)}
+          />
+        </div>
+      )}
 
       {/* Pull to refresh button */}
       <div className="flex justify-center py-2">

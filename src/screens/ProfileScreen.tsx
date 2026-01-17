@@ -7,22 +7,30 @@ import {
   Edit2,
   TrendingUp,
   ArrowLeft,
+  Wallet,
+  UserPlus,
+  UserMinus,
 } from "lucide-react";
 import { usePearAuthContext } from "@/contexts/PearAuthContext";
 import { useAccount } from "wagmi";
+import { useWeb3Modal } from "@web3modal/wagmi/react";
 import { db } from "@/lib/db";
-import type { User, TradePost } from "@/types/database";
+import type { User, TradePost, TradePostWithCreator } from "@/types/database";
 import { usePearPositions, usePearTradeHistory } from "@/hooks/usePear";
 import { calculateAndUpdateUserStats } from "@/lib/userStats";
+import { SocialTradePost } from "@/components/SocialTradePost";
 
-type Tab = "trades" | "history" | "about";
+type Tab = "trades" | "history" | "about" | "posts";
 
 export function ProfileScreen() {
   const { id: routeUserId } = useParams();
   const navigate = useNavigate();
   const { user: authUser, logout, isAuthenticated } = usePearAuthContext();
   const { address } = useAccount();
-  const [activeTab, setActiveTab] = useState<Tab>("trades");
+  const { open } = useWeb3Modal();
+  const [activeTab, setActiveTab] = useState<Tab>(
+    routeUserId ? "posts" : "trades",
+  );
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const hasUpdatedStats = useRef(false);
@@ -32,6 +40,7 @@ export function ProfileScreen() {
   const [isEditing, setIsEditing] = useState(false);
   const [editName, setEditName] = useState("");
   const [editBio, setEditBio] = useState("");
+  const [isFollowing, setIsFollowing] = useState(false);
 
   // Pear Hooks
   const { positions: pearPositions, isLoading: positionsLoading } =
@@ -60,8 +69,25 @@ export function ProfileScreen() {
         setEditName(userData.username || "");
         setEditBio(userData.bio || "");
 
-        const trades = await db.posts.getByUser(userData.id);
-        setUserTrades(trades);
+        // Check follow status if viewing someone else
+        if (authUser && userData.id !== authUser.id) {
+          const following = await db.follows.isFollowing(
+            authUser.id,
+            userData.id,
+          );
+          setIsFollowing(following);
+        }
+
+        // Fetch posts
+        const posts = await db.posts.getByUser(userData.id);
+        // Sort by created_at desc
+        setUserTrades(
+          posts.sort(
+            (a, b) =>
+              new Date(b.created_at).getTime() -
+              new Date(a.created_at).getTime(),
+          ),
+        );
       }
     } catch (error) {
       console.error("Error fetching user data:", error);
@@ -72,7 +98,7 @@ export function ProfileScreen() {
 
   useEffect(() => {
     fetchUserData();
-  }, [authUser?.walletAddress, address, routeUserId]);
+  }, [authUser?.walletAddress, authUser?.id, address, routeUserId]);
 
   // Update stats on load
   useEffect(() => {
@@ -111,16 +137,40 @@ export function ProfileScreen() {
 
   const isOwnProfile = !routeUserId || authUser?.id === user?.id;
 
-  if ((!isAuthenticated || !address) && !routeUserId) {
+  const handleFollowToggle = async () => {
+    if (!authUser || !user) return;
+
+    // Optimistic Update
+    setIsFollowing(!isFollowing);
+
+    if (isFollowing) {
+      // Unfollow
+      const success = await db.follows.unfollow(authUser.id, user.id);
+      if (!success) setIsFollowing(true); // Revert
+    } else {
+      // Follow
+      const success = await db.follows.follow(authUser.id, user.id);
+      if (!success) setIsFollowing(false); // Revert
+    }
+  };
+
+  if (!address && !routeUserId) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center px-6 text-center pb-32">
         <div className="w-20 h-20 rounded-full bg-secondary flex items-center justify-center mb-4">
           <TrendingUp className="w-10 h-10 text-primary" />
         </div>
         <h3 className="text-lg font-semibold mb-2">Connect Your Wallet</h3>
-        <p className="text-muted-foreground text-sm">
+        <p className="text-muted-foreground text-sm mb-6">
           Connect your wallet to view your trading profile
         </p>
+        <button
+          onClick={() => open()}
+          className="px-6 py-3 rounded-xl gradient-primary text-primary-foreground font-bold flex items-center gap-2 tap-scale"
+        >
+          <Wallet className="w-5 h-5" />
+          Connect Wallet
+        </button>
       </div>
     );
   }
@@ -306,16 +356,41 @@ export function ProfileScreen() {
           </div>
         </div>
 
-        {/* Edit Profile Button */}
-        <button className="w-full py-3 rounded-xl border-2 border-primary text-primary font-bold tap-scale hover:bg-primary/5 transition-colors flex items-center justify-center gap-2">
-          <Edit2 className="w-5 h-5" />
-          Edit Profile
-        </button>
+        {/* Edit Profile / Follow Button */}
+        {isOwnProfile ? (
+          <button
+            onClick={() => setIsEditing(true)}
+            className="w-full py-3 rounded-xl border-2 border-primary text-primary font-bold tap-scale hover:bg-primary/5 transition-colors flex items-center justify-center gap-2"
+          >
+            <Edit2 className="w-5 h-5" />
+            Edit Profile
+          </button>
+        ) : (
+          <button
+            onClick={handleFollowToggle}
+            className={`w-full py-3 rounded-xl border-2 font-bold tap-scale transition-colors flex items-center justify-center gap-2 ${
+              isFollowing
+                ? "border-border text-muted-foreground bg-secondary/50"
+                : "border-primary text-primary hover:bg-primary/5"
+            }`}
+          >
+            {isFollowing ? (
+              <UserMinus className="w-5 h-5" />
+            ) : (
+              <UserPlus className="w-5 h-5" />
+            )}
+            {isFollowing ? "Unfollow" : "Follow"}
+          </button>
+        )}
       </div>
 
       {/* Tabs */}
-      <div className="flex border-b border-border px-4">
-        {(["trades", "history", "about"] as const).map((tab) => (
+      <div className="flex border-b border-border px-4 overflow-x-auto no-scrollbar">
+        {(
+          (isOwnProfile
+            ? ["trades", "history", "posts", "about"]
+            : ["posts", "about"]) as Tab[]
+        ).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -525,14 +600,39 @@ export function ProfileScreen() {
           </div>
         )}
 
+        {activeTab === "posts" && (
+          <div className="space-y-4">
+            {userTrades.length > 0 ? (
+              userTrades.map((post) => (
+                <SocialTradePost
+                  key={post.id}
+                  post={{ ...post, creator: user }} // Inject creator
+                  isLiked={false} // Todo: fetch like status
+                  currentUserId={authUser?.id}
+                  onLike={() => {}}
+                  isFollowing={isFollowing}
+                  onFollow={handleFollowToggle}
+                  onCopyTrade={() => {}}
+                />
+              ))
+            ) : (
+              <div className="text-center py-12 text-muted-foreground">
+                <p>No posts yet</p>
+              </div>
+            )}
+          </div>
+        )}
+
         {activeTab === "about" && (
           <div className="space-y-6">
-            <div>
-              <h3 className="font-bold mb-2">Wallet Address</h3>
-              <p className="text-muted-foreground text-sm font-mono break-all">
-                {user.wallet_address}
-              </p>
-            </div>
+            {isOwnProfile && (
+              <div>
+                <h3 className="font-bold mb-2">Wallet Address</h3>
+                <p className="text-muted-foreground text-sm font-mono break-all">
+                  {user.wallet_address}
+                </p>
+              </div>
+            )}
 
             {user.bio && (
               <div>

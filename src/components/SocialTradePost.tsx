@@ -21,6 +21,7 @@ interface SocialTradePostProps {
   onLike: () => void;
   onFollow: () => void;
   onCopyTrade: () => void;
+  isFollowing?: boolean;
 }
 
 function DirectionBadge({ direction }: { direction: "LONG" | "SHORT" }) {
@@ -94,9 +95,14 @@ export function SocialTradePost({
   onLike,
   onFollow,
   onCopyTrade,
+  isFollowing: initialIsFollowing = false,
 }: SocialTradePostProps) {
   const navigate = useNavigate();
-  const [isFollowing, setIsFollowing] = useState(false);
+  const [isFollowing, setIsFollowing] = useState(initialIsFollowing);
+
+  useEffect(() => {
+    setIsFollowing(initialIsFollowing);
+  }, [initialIsFollowing]);
   const [localLikeCount, setLocalLikeCount] = useState(post.likes_count);
   const [localIsLiked, setLocalIsLiked] = useState(isLiked);
   const [isPositionOpen, setIsPositionOpen] = useState<boolean | null>(

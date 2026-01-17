@@ -278,17 +278,17 @@ export const followService = {
 
   // Check if user is following another
   async isFollowing(followerId: string, followingId: string): Promise<boolean> {
-    const { data, error } = await supabase
+    const { count, error } = await supabase
       .from('follows')
-      .select('id')
+      .select('*', { count: 'exact', head: true })
       .eq('follower_id', followerId)
-      .eq('following_id', followingId)
-      .single();
+      .eq('following_id', followingId);
     
-    if (error && error.code !== 'PGRST116') {
+    if (error) {
       console.error('Error checking follow status:', error);
+      return false;
     }
-    return !!data;
+    return (count || 0) > 0;
   },
 
   // Get followers of a user
