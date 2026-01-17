@@ -25,7 +25,7 @@ import { db } from "@/lib/db";
 const PEAR_BUILDER_ADDRESS = "0xA47D4d99191db54A4829cdf3de2417E527c3b042";
 const HYPERLIQUID_API_URL = "https://api.hyperliquid.xyz/exchange";
 const HYPERLIQUID_CHAIN_ID = 42161;
-const LEG_MIN_NOTIONAL = 10;
+const LEG_MIN_NOTIONAL = 11;
 
 // Hardcoded popular markets for now
 const POPULAR_MARKETS = [

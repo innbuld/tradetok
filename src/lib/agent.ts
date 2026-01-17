@@ -16,7 +16,8 @@ export type AgentStrategy =
   | 'LONG_TOP_GAINER'
   | 'SHORT_TOP_LOSER'
   | 'COPY_TOP_TRADER'
-  | 'PAIR_TRADE'  // NEW: Long one asset, short another
+  | 'PAIR_TRADE'  // Long one asset, short another
+  | 'BASKET_TRADE' // NEW: Multiple assets
   | 'CUSTOM';
 
 export interface AgentCommand {
@@ -25,7 +26,9 @@ export interface AgentCommand {
   leverage?: number;
   customParams?: {
     asset?: string;
-    shortAsset?: string;  // NEW: For pair trades
+    shortAsset?: string;
+    longAssets?: string[];  // NEW: For basket trades
+    shortAssets?: string[]; // NEW: For basket trades
     direction?: 'LONG' | 'SHORT';
   };
 }
@@ -33,7 +36,9 @@ export interface AgentCommand {
 export interface AgentAnalysis {
   strategy: AgentStrategy;
   asset?: string;
-  shortAsset?: string;  // NEW: For pair trades
+  shortAsset?: string;  // For pair trades
+  longAssets?: string[]; // NEW: For basket trades
+  shortAssets?: string[]; // NEW: For basket trades
   direction: 'LONG' | 'SHORT';
   pair: string;
   reason: string;
@@ -91,7 +96,7 @@ export interface TopMover {
 }
 
 // Minimum notional value per leg (matching QuickTradeModal)
-const LEG_MIN_NOTIONAL = 10; // $10 per leg
+const LEG_MIN_NOTIONAL = 11; // $11 per leg
 
 // ============================================
 // AGENT SERVICE
@@ -141,6 +146,123 @@ class TradingAgent {
   }
 
   /**
+   * Calculate optimal trade parameters for a Basket Trade (multi-asset)
+   * Assumes EQUAL WEIGHTS for simplicity (1/N per asset)
+   */
+  async getOptimalTradeParamsForBasket(
+    userBalance: number,
+    longAssets: string[],
+    shortAssets: string[],
+    requestedAmount?: number,
+    requestedLeverage?: number,
+  ): Promise<{ amount: number; leverage: number; canTrade: boolean; reason?: string; minNotional: number }> {
+    const isStable = (asset: string) => ['USDC', 'USDT', 'DAI'].includes(asset?.toUpperCase());
+    
+    // Filter out stables from min notional calculation (they are collateral)
+    const activeAssets = [
+      ...longAssets.filter(a => !isStable(a)),
+      ...shortAssets.filter(a => !isStable(a))
+    ];
+
+    if (activeAssets.length === 0) {
+      return { amount: 0, leverage: 1, canTrade: false, reason: "No active assets to trade", minNotional: 0 };
+    }
+
+    // Identify side weighting
+    // In pear protocol, margin is split between Long and Short sides.
+    // If both exist, each side gets 50% of total margin.
+    // Within each side, assets are equally weighted (1/N).
+    const hasLongs = longAssets.some(a => !isStable(a));
+    const hasShorts = shortAssets.some(a => !isStable(a));
+    const sideFactor = hasLongs && hasShorts ? 0.5 : 1.0;
+
+    // We need to find the "limiting factor" asset
+    // i.e., the asset that requires the highest TOTAL margin to satisfy its individual min notional
+    let globalRequiredMin = 0;
+    
+    // Calculate effective max leverage using Harmonic Mean
+    // EffectiveMax = 1 / Sum(Weight_i / MaxLev_i)
+    let sumInverseMaxLev = 0;
+    let highestAssetMaxLev = 0;
+
+    for (const asset of activeAssets) {
+      const info = await this.calculateAssetMinNotional(asset);
+      
+      highestAssetMaxLev = Math.max(highestAssetMaxLev, info.maxLeverage);
+
+      // Calculate weight of this asset relative to TOTAL margin
+      // Weight = (1/AccessCntInSide) * SideFactor
+      // e.g. Long [BTC, ETH], Short [SOL] -> BTC weight = 0.5 * 0.5 = 0.25
+      const isLong = longAssets.includes(asset);
+      const peersInSide = isLong 
+        ? longAssets.filter(a => !isStable(a)).length 
+        : shortAssets.filter(a => !isStable(a)).length;
+      
+      const assetWeight = (1 / peersInSide) * sideFactor;
+      
+      // Accumulate inverse leverage for harmonic mean
+      sumInverseMaxLev += assetWeight / info.maxLeverage;
+
+      // Required Total = MinNotional / Weight
+      const reqTotal = info.minNotional / assetWeight;
+      
+      if (reqTotal > globalRequiredMin) {
+        globalRequiredMin = reqTotal;
+      }
+    }
+
+    const totalMinNotional = globalRequiredMin;
+    
+    // Effective max leverage for the basket (margin efficiency)
+    const effectiveMaxLev = Math.floor(sumInverseMaxLev > 0 ? 1 / sumInverseMaxLev : 1);
+    // Allowed max leverage (highest individual asset) - allowing biasing towards higher lev assets
+    const maxLeverage = highestAssetMaxLev;
+    
+    console.log(`[Agent] Basket check: MinNotional=$${totalMinNotional.toFixed(2)}, EffectiveMaxLev=${effectiveMaxLev}x, AllowedMax=${maxLeverage}x`);
+
+    // --- Reuse logic from getOptimalTradeParamsForAsset ---
+    // Determine the amount to use (user's balance or requested)
+    let amount = requestedAmount || Math.min(this.defaultAmount, userBalance);
+    if (amount > userBalance) { amount = userBalance; }
+
+    // Calculate minimum margin needed based on EFFECTIVE leverage capacity
+    const minMarginNeeded = totalMinNotional / effectiveMaxLev;
+    
+    if (userBalance < minMarginNeeded) {
+      return {
+        amount: 0, 
+        leverage: 1, 
+        canTrade: false, 
+        reason: `Insufficient balance. Basket needs $${minMarginNeeded.toFixed(2)} (${totalMinNotional.toFixed(2)} notional ÷ ${maxLeverage}x max leverage).`,
+        minNotional: totalMinNotional
+      };
+    }
+
+    let leverage = requestedLeverage || this.defaultLeverage;
+    const currentNotional = amount * leverage;
+    
+    if (currentNotional < totalMinNotional) {
+      const neededLeverage = Math.ceil(totalMinNotional / amount);
+      leverage = Math.max(leverage, neededLeverage);
+    }
+    
+    leverage = Math.min(leverage, maxLeverage);
+
+    const effectiveNotional = amount * leverage;
+    if (effectiveNotional < totalMinNotional) {
+      return {
+        amount, leverage: maxLeverage, canTrade: false,
+        reason: `Even with ${maxLeverage}x leverage, basket notional ($${effectiveNotional.toFixed(2)}) is below minimum ($${totalMinNotional.toFixed(2)}).`,
+        minNotional: totalMinNotional
+      };
+    }
+
+    console.log(`[Agent] Basket params: $${amount} @ ${leverage}x (min: $${totalMinNotional.toFixed(2)})`);
+
+    return { amount, leverage, canTrade: true, minNotional: totalMinNotional };
+  }
+
+  /**
    * Calculate optimal trade parameters based on user balance and actual asset requirements
    * Fetches real asset metadata to determine minimum notional and max leverage
    * For pair trades, calculates min notional for BOTH long and short assets
@@ -179,10 +301,16 @@ class TradingAgent {
       const maxSingleSideMin = Math.max(longAssetInfo.minNotional, shortAssetInfo.minNotional);
       totalMinNotional = maxSingleSideMin / 0.5; // Since each side only gets 50%
       
-      // Use the lower of the two max leverages for safety
-      maxLeverage = Math.min(longAssetInfo.maxLeverage, shortAssetInfo.maxLeverage);
+      // Calculate effective max leverage using Harmonic Mean
+      // Pair trade is 50/50 split
+      // EffectiveMax = 1 / ( (0.5/LongMax) + (0.5/ShortMax) )
+      const inverseLev = (0.5 / longAssetInfo.maxLeverage) + (0.5 / shortAssetInfo.maxLeverage);
+      const effectiveMaxLev = Math.floor(1 / inverseLev);
       
-      console.log(`[Agent] Pair trade ${longAsset}/${shortAsset}: longMin=$${longAssetInfo.minNotional.toFixed(2)}, shortMin=$${shortAssetInfo.minNotional.toFixed(2)}, totalMin=$${totalMinNotional.toFixed(2)}, maxLev=${maxLeverage}x`);
+      // Allowed max is the highest individual asset max
+      maxLeverage = Math.max(longAssetInfo.maxLeverage, shortAssetInfo.maxLeverage);
+      
+      console.log(`[Agent] Pair trade ${longAsset}/${shortAsset}: longMin=$${longAssetInfo.minNotional.toFixed(2)}, shortMin=$${shortAssetInfo.minNotional.toFixed(2)}, totalMin=$${totalMinNotional.toFixed(2)}, EffectiveMaxLev=${effectiveMaxLev}x, AllowedMax=${maxLeverage}x`);
     } else {
       // Directional trade: only need min on active side
       totalMinNotional = longAssetInfo.minNotional;
@@ -191,24 +319,31 @@ class TradingAgent {
 
     // Determine the amount to use (user's balance or requested)
     let amount = requestedAmount || Math.min(this.defaultAmount, userBalance);
-    if (amount > userBalance) {
-      amount = userBalance;
+    if (amount > userBalance) { amount = userBalance; }
+
+    // Calculate minimum margin needed based on EFFECTIVE leverage
+    // For pair trade, effective leverage might be lower than "maxLeverage" variable
+    let effectiveMaxLevForMargin = maxLeverage;
+    if (isPairTrade) {
+      const inverseLev = (0.5 / longAssetInfo.maxLeverage) + (0.5 / (await this.calculateAssetMinNotional(shortAsset!)).maxLeverage);
+      effectiveMaxLevForMargin = Math.floor(1 / inverseLev);
     }
 
-    // Calculate minimum margin needed at max leverage
-    const minMarginNeeded = totalMinNotional / maxLeverage;
+    const minMarginNeeded = totalMinNotional / effectiveMaxLevForMargin;
     
     if (userBalance < minMarginNeeded) {
       return {
         amount: 0,
         leverage: 1,
         canTrade: false,
-        reason: `Insufficient balance. Need at least $${minMarginNeeded.toFixed(2)} (${totalMinNotional.toFixed(2)} notional ÷ ${maxLeverage}x max leverage).`,
+        reason: `Insufficient balance. Need at least $${minMarginNeeded.toFixed(2)} (${totalMinNotional.toFixed(2)} notional ÷ ${effectiveMaxLevForMargin}x effective max leverage).`,
         minNotional: totalMinNotional,
       };
     }
 
     // Calculate the leverage needed for the chosen amount
+    // We want Notional >= TotalMin
+    // Amount * Leverage >= TotalMin
     let leverage = requestedLeverage || this.defaultLeverage;
     
     // If the notional (amount * leverage) is less than min, increase leverage
@@ -218,7 +353,7 @@ class TradingAgent {
       leverage = Math.max(leverage, neededLeverage);
     }
     
-    // Cap at max leverage
+    // Cap at allowed max leverage
     leverage = Math.min(leverage, maxLeverage);
 
     // Final check
@@ -228,12 +363,12 @@ class TradingAgent {
         amount,
         leverage: maxLeverage,
         canTrade: false,
-        reason: `Even with ${maxLeverage}x leverage, notional ($${effectiveNotional.toFixed(2)}) is below minimum ($${totalMinNotional.toFixed(2)}).`,
+        reason: `Even with ${maxLeverage}x leverage, position size ($${effectiveNotional.toFixed(2)}) is below minimum ($${totalMinNotional.toFixed(2)}).`,
         minNotional: totalMinNotional,
       };
     }
 
-    console.log(`[Agent] Trade params: $${amount} @ ${leverage}x = $${effectiveNotional.toFixed(2)} notional (min: $${totalMinNotional.toFixed(2)})`);
+    console.log(`[Agent] Trade params: $${amount} @ ${leverage}x (min: $${totalMinNotional.toFixed(2)})`);
 
     return {
       amount,
@@ -449,7 +584,7 @@ class TradingAgent {
         const tradeParams = await this.getOptimalTradeParamsForAsset(
           balance,
           topGainer.symbol,  // Pass the actual asset for metadata lookup
-          false, // Directional trade, not pair trade
+          undefined, // Directional trade, no short asset
           command.amount,
           command.leverage,
         );
@@ -480,7 +615,7 @@ class TradingAgent {
         const tradeParams = await this.getOptimalTradeParamsForAsset(
           balance,
           topLoser.symbol,  // Pass the actual asset for metadata lookup
-          false, // Directional trade
+          undefined, // Directional trade
           command.amount,
           command.leverage,
         );
@@ -514,12 +649,14 @@ class TradingAgent {
         const shortAssets = Array.isArray(latestTrade.short_assets) ? latestTrade.short_assets : [];
         const isPair = shortAssets.length > 0 &&
           !['USDC', 'USDT'].includes((shortAssets[0] as any)?.asset);
+        
+        const shortAssetName = isPair ? (shortAssets[0] as any)?.asset : undefined;
 
         const tradeAsset = latestTrade.pair.split('/')[0];
         const tradeParams = await this.getOptimalTradeParamsForAsset(
           balance,
           tradeAsset,  // Pass the actual asset for metadata lookup
-          isPair,
+          shortAssetName,
           command.amount,
           command.leverage || latestTrade.leverage,
         );
@@ -561,7 +698,7 @@ class TradingAgent {
         const tradeParams = await this.getOptimalTradeParamsForAsset(
           balance,
           asset,  // Pass the actual asset for metadata lookup
-          false, // Directional trade
+          undefined, // Directional trade
           command.amount,
           command.leverage,
         );
@@ -599,7 +736,7 @@ class TradingAgent {
         const tradeParams = await this.getOptimalTradeParamsForAsset(
           balance,
           longAsset,  // Use long asset for metadata
-          true,        // This IS a pair trade (needs 2x notional)
+          shortAsset, // Pass the short asset
           command.amount,
           command.leverage,
         );
@@ -621,6 +758,56 @@ class TradingAgent {
         };
       }
 
+      case 'BASKET_TRADE': {
+        const longAssets = command.customParams?.longAssets || [];
+        const shortAssets = command.customParams?.shortAssets || [];
+        
+        if (longAssets.length === 0 && shortAssets.length === 0) return null;
+
+        // Validate all assets exist
+        const prices = await hyperliquidClient.getAllMids();
+        const allAssets = [...longAssets, ...shortAssets];
+        const missingAssets = allAssets.filter(a => !prices[a] && !['USDC', 'USDT'].includes(a));
+        
+        if (missingAssets.length > 0) {
+          console.log('[Agent] Assets not found:', missingAssets);
+          return null;
+        }
+
+        // Basket trade - fetch requirements for all assets
+        const tradeParams = await this.getOptimalTradeParamsForBasket(
+          balance,
+          longAssets,
+          shortAssets,
+          command.amount,
+          command.leverage,
+        );
+
+        if (!tradeParams.canTrade) {
+          console.log('[Agent] Cannot trade:', tradeParams.reason);
+          return null;
+        }
+
+        // Format pair name
+        let pairName = "";
+        if (longAssets.length > 0) pairName += `Long [${longAssets.join(',')}]`;
+        if (shortAssets.length > 0) {
+          if (pairName) pairName += " / ";
+          pairName += `Short [${shortAssets.join(',')}]`;
+        }
+
+        return {
+          strategy: 'BASKET_TRADE',
+          longAssets,   // Pass list to analysis
+          shortAssets,  // Pass list to analysis
+          direction: 'LONG' as const, // Simplified direction for the top-level
+          pair: pairName.length > 30 ? "Complex Basket Trade" : pairName,
+          reason: `Basket trade: ${pairName}. Using ${tradeParams.leverage}x leverage.`,
+          suggestedAmount: tradeParams.amount,
+          suggestedLeverage: tradeParams.leverage,
+        };
+      }
+
       default:
         return null;
     }
@@ -632,24 +819,59 @@ class TradingAgent {
   async execute(analysis: AgentAnalysis): Promise<AgentExecutionResult> {
     try {
       const asset = analysis.asset;
-      if (!asset) {
+      
+      // For basket trades, we don't need a single 'asset' defined
+      if (!asset && analysis.strategy !== 'BASKET_TRADE') {
         throw new Error('No asset specified in analysis');
       }
 
       let response: CreatePositionResponse;
 
       // Check if this is a pair trade
-      if (analysis.strategy === 'PAIR_TRADE' && analysis.shortAsset) {
+      if (analysis.strategy === 'PAIR_TRADE' && analysis.shortAsset && asset) {
         // Pair trade: Long asset, Short shortAsset
+        // Weights must sum to 1.0 across ALL assets (Long + Short)
         response = await pearClient.createPosition({
           executionType: 'MARKET',
           usdValue: analysis.suggestedAmount * analysis.suggestedLeverage, // Notional value
           leverage: analysis.suggestedLeverage,
-          longAssets: [{ asset: asset, weight: 1 }],
-          shortAssets: [{ asset: analysis.shortAsset, weight: 1 }],
+          longAssets: [{ asset: asset, weight: 0.5 }],
+          shortAssets: [{ asset: analysis.shortAsset, weight: 0.5 }],
           slippage: 0.1,
         });
-      } else {
+      } else if (analysis.strategy === 'BASKET_TRADE') {
+        // Basket trade with multiple assets
+        // Optimize for Market Neutrality (50% Long, 50% Short) if both sides exist
+        const longAssets = analysis.longAssets || [];
+        const shortAssets = analysis.shortAssets || [];
+        
+        const hasLongs = longAssets.length > 0;
+        const hasShorts = shortAssets.length > 0;
+        
+        let longAssetWeight = 0;
+        let shortAssetWeight = 0;
+        
+        if (hasLongs && hasShorts) {
+          // 50/50 Split
+          longAssetWeight = 0.5 / longAssets.length;
+          shortAssetWeight = 0.5 / shortAssets.length;
+        } else if (hasLongs) {
+          // Long Only
+          longAssetWeight = 1.0 / longAssets.length;
+        } else if (hasShorts) {
+          // Short Only
+          shortAssetWeight = 1.0 / shortAssets.length;
+        }
+        
+        response = await pearClient.createPosition({
+          executionType: 'MARKET',
+          usdValue: analysis.suggestedAmount * analysis.suggestedLeverage,
+          leverage: analysis.suggestedLeverage,
+          longAssets: longAssets.map(a => ({ asset: a, weight: longAssetWeight })),
+          shortAssets: shortAssets.map(a => ({ asset: a, weight: shortAssetWeight })),
+          slippage: 0.1,
+        });
+      } else if (asset) {
         // Directional trade
         response = await pearClient.createDirectionalTrade({
           asset,
@@ -658,6 +880,8 @@ class TradingAgent {
           leverage: analysis.suggestedLeverage,
           slippage: 0.01, // 1%
         });
+      } else {
+        throw new Error('Invalid trade configuration');
       }
 
       return {
@@ -879,6 +1103,21 @@ class TradingAgent {
           customParams: {
             asset: intent.params.asset,        // Long this
             shortAsset: intent.params.shortAsset, // Short this
+          },
+        };
+
+      case 'basket_trade':
+        const longAssets = intent.params.longAssets || [];
+        const shortAssets = intent.params.shortAssets || [];
+        if (longAssets.length === 0 && shortAssets.length === 0) return null;
+        
+        return {
+          strategy: 'BASKET_TRADE',
+          amount: intent.params.amount,
+          leverage: intent.params.leverage,
+          customParams: {
+            longAssets,
+            shortAssets,
           },
         };
 

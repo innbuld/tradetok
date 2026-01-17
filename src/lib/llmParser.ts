@@ -13,7 +13,8 @@ export type IntentAction =
   | 'copy_top_trader'
   | 'long_asset'
   | 'short_asset'
-  | 'pair_trade'  // NEW: Long one asset, short another
+  | 'pair_trade'  // Long one asset, short another
+  | 'basket_trade' // NEW: Multiple assets (Long [A,B], Short [C,D])
   | 'search_trades'
   | 'view_portfolio'
   | 'check_balance'
@@ -31,7 +32,9 @@ export interface ParsedIntent {
   action: IntentAction;
   params: {
     asset?: string;
-    shortAsset?: string;  // NEW: For pair trades
+    shortAsset?: string;
+    longAssets?: string[];  // NEW: For basket trades
+    shortAssets?: string[]; // NEW: For basket trades
     amount?: number;
     leverage?: number;
     direction?: 'LONG' | 'SHORT';
@@ -69,10 +72,11 @@ AVAILABLE ACTIONS:
 3. copy_top_trader - Copy the best trader's latest trade
 4. long_asset - Long a specific crypto (e.g. "long BTC")
 5. short_asset - Short a specific crypto (e.g. "short ETH")
-6. pair_trade - Long one asset while shorting another (e.g. "pair trade BTC/SOL", "long BTC short SOL")
-7. view_portfolio - Show portfolio, positions, or P&L
-8. check_balance - Check account balance or available funds
-9. close_position - Close a trading position
+6. pair_trade - Long one asset while shorting another (e.g. "pair trade BTC/SOL")
+7. basket_trade - Long multiple assets and/or short multiple assets (e.g. "Long BTC, ETH and short SOL")
+8. view_portfolio - Show portfolio, positions, or P&L
+9. check_balance - Check account balance or available funds
+10. close_position - Close a trading position
 10. search_trades - Find or filter trades
 11. market_analysis - Analyze market conditions or trending coins
 12. explain - Explain trading concepts
@@ -132,6 +136,15 @@ User: "pair BTC/SOL with $50"
 
 User: "trade BTC against SOL" or "bet BTC vs SOL"
 {"action":"pair_trade","params":{"asset":"BTC","shortAsset":"SOL"},"confidence":0.9,"requiresConfirmation":false,"response":"📊 Creating a pair trade: Long BTC / Short SOL - betting BTC outperforms SOL!"}
+
+User: "long BTC and ETH, short SOL"
+{"action":"basket_trade","params":{"longAssets":["BTC","ETH"],"shortAssets":["SOL"]},"confidence":0.95,"requiresConfirmation":false,"response":"🧺 Setting up a basket trade: Long [BTC, ETH] / Short [SOL]..."}
+
+User: "basket trade: long AI tokens (TAO, FET) and short memecoins (PEPE)"
+{"action":"basket_trade","params":{"longAssets":["TAO","FET"],"shortAssets":["PEPE"]},"confidence":0.9,"requiresConfirmation":false,"response":"🧺 Creating a custom basket: Longing AI tokens, Shorting memecoins..."}
+
+User: "long SOL, AVAX and short ETH, BTC"
+{"action":"basket_trade","params":{"longAssets":["SOL","AVAX"],"shortAssets":["ETH","BTC"]},"confidence":0.95,"requiresConfirmation":false,"response":"🧺 Setting up a diversified basket trade..."}
 
 BE HELPFUL: If someone asks something unclear, make your best guess and provide a helpful response. Never say you don't understand - always try to help!`;
 
