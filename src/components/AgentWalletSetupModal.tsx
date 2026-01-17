@@ -16,9 +16,10 @@ import {
   AlertCircle,
   Wallet,
   Coins,
+  RefreshCw,
 } from "lucide-react";
 import { usePearAuthContext } from "@/contexts/PearAuthContext";
-import { useSignTypedData, useAccount } from "wagmi";
+import { useSignTypedData, useAccount, useBalance } from "wagmi";
 import { useWeb3Modal } from "@web3modal/wagmi/react";
 import { DepositModal } from "./DepositModal";
 
@@ -30,6 +31,7 @@ interface AgentWalletSetupModalProps {
 // Hyperliquid API Constants
 const HYPERLIQUID_API_URL = "https://api.hyperliquid.xyz/exchange";
 const HYPERLIQUID_CHAIN_ID = 42161; // Arbitrum One
+const USDC_ADDRESS = "0xaf88d065e77c8cC2239327C5EDb3A432268e5831";
 
 export function AgentWalletSetupModal({
   isOpen,
@@ -42,12 +44,19 @@ export function AgentWalletSetupModal({
   const { open } = useWeb3Modal();
 
   const [step, setStep] = useState<
-    "CREATE" | "APPROVE" | "SUCCESS" | "DEPOSIT_NEEDED"
+    "CREATE" | "APPROVE" | "SUCCESS" | "DEPOSIT_NEEDED" | "INSUFFICIENT_FUNDS"
   >("CREATE");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [createdAddress, setCreatedAddress] = useState<string | null>(null);
   const [showDepositModal, setShowDepositModal] = useState(false);
+
+  // CHECK USDC BALANCE LOGIC
+  const { data: balanceData, refetch: refetchBalance } = useBalance({
+    address,
+    token: USDC_ADDRESS,
+    chainId: HYPERLIQUID_CHAIN_ID,
+  });
 
   // Auto-skip to APPROVE if agent wallet already exists
   useEffect(() => {
@@ -58,8 +67,20 @@ export function AgentWalletSetupModal({
       );
       setCreatedAddress(agentWallet);
       setStep("APPROVE");
+    } else if (
+      isOpen &&
+      !agentWallet &&
+      step === "CREATE" &&
+      isConnected &&
+      balanceData
+    ) {
+      // Check Balance for NEW users
+      const balance = parseFloat(balanceData.formatted);
+      if (balance < 6) {
+        setStep("INSUFFICIENT_FUNDS");
+      }
     }
-  }, [isOpen, agentWallet, step]);
+  }, [isOpen, agentWallet, step, isConnected, balanceData]);
 
   const handleCreateWallet = async () => {
     setIsLoading(true);
@@ -174,6 +195,10 @@ export function AgentWalletSetupModal({
       }
 
       setStep("SUCCESS");
+      // Mark locally as approved to prevent re-opening on refresh
+      if (address) {
+        localStorage.setItem(`pear_agent_approved_${address}`, "true");
+      }
       refreshAccount();
     } catch (err) {
       console.error("Approval failed:", err);
@@ -264,6 +289,28 @@ export function AgentWalletSetupModal({
                 Error: {error}
               </p>
             )}
+
+            {step === "INSUFFICIENT_FUNDS" && (
+              <>
+                <div className="w-16 h-16 rounded-full bg-destructive/10 flex items-center justify-center mb-2">
+                  <AlertCircle className="w-8 h-8 text-destructive" />
+                </div>
+                <h3 className="font-semibold text-lg">Insufficient USDC</h3>
+                <p className="text-sm text-muted-foreground">
+                  You need at least 6 USDC on Arbitrum to activate your trading
+                  account.
+                </p>
+                <div className="bg-secondary/50 p-3 rounded-lg text-sm w-full">
+                  Your Balance:{" "}
+                  <span className="font-mono font-bold">
+                    {balanceData?.formatted
+                      ? parseFloat(balanceData.formatted).toFixed(2)
+                      : "0.00"}{" "}
+                    USDC
+                  </span>
+                </div>
+              </>
+            )}
           </div>
 
           <DialogFooter className="sm:justify-center flex-col sm:flex-col gap-2">
@@ -312,6 +359,30 @@ export function AgentWalletSetupModal({
               <Button onClick={onClose} className="w-full">
                 Start Trading
               </Button>
+            )}
+
+            {step === "INSUFFICIENT_FUNDS" && (
+              <div className="w-full flex flex-col gap-2">
+                <Button
+                  onClick={() =>
+                    window.open(
+                      "https://app.uniswap.org/swap?chain=arbitrum",
+                      "_blank",
+                    )
+                  }
+                  variant="outline"
+                  className="w-full"
+                >
+                  Get USDC
+                </Button>
+                <Button
+                  onClick={() => refetchBalance().then(() => setStep("CREATE"))}
+                  className="w-full"
+                >
+                  <RefreshCw className="w-4 h-4 mr-2" />
+                  Check Balance Again
+                </Button>
+              </div>
             )}
           </DialogFooter>
         </DialogContent>

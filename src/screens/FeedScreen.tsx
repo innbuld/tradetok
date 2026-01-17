@@ -7,6 +7,7 @@ import { BasketTradeModal } from "@/components/BasketTradeModal";
 import { FilterDrawer } from "@/components/FilterDrawer";
 import { WalletConnectButton } from "@/components/WalletConnectButton";
 import { AgentChat } from "@/components/AgentChat";
+import { AgentWalletSetupModal } from "@/components/AgentWalletSetupModal";
 import { usePearAuthContext } from "@/contexts/PearAuthContext";
 import { db } from "@/lib/db";
 import type { TradePostWithCreator, User } from "@/types/database";
@@ -14,7 +15,7 @@ import type { TradePostWithCreator, User } from "@/types/database";
 type FeedTab = "foryou" | "following";
 
 export function FeedScreen() {
-  const { isAuthenticated, address } = usePearAuthContext();
+  const { isAuthenticated, address, agentWallet } = usePearAuthContext();
 
   const [activeTab, setActiveTab] = useState<FeedTab>("foryou");
   const [posts, setPosts] = useState<TradePostWithCreator[]>([]);
@@ -29,6 +30,7 @@ export function FeedScreen() {
   const [isBasketOpen, setIsBasketOpen] = useState(false);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [isAgentExpanded, setIsAgentExpanded] = useState(false);
+  const [showAgentSetup, setShowAgentSetup] = useState(false);
 
   // User liked posts (for optimistic UI)
   const [likedPosts, setLikedPosts] = useState<Set<string>>(new Set());
@@ -157,6 +159,16 @@ export function FeedScreen() {
             TradeTok
           </h1>
           <div className="flex items-center gap-2">
+            {/* Setup Trading Button (if needed) */}
+            {isAuthenticated && address && !agentWallet && (
+              <button
+                onClick={() => setShowAgentSetup(true)}
+                className="px-3 py-1.5 rounded-full bg-primary text-primary-foreground text-xs font-bold shadow-lg animate-pulse"
+              >
+                Setup Trading
+              </button>
+            )}
+
             {/* AI Agent Button */}
             <button
               onClick={() => setIsAgentExpanded(!isAgentExpanded)}
@@ -347,6 +359,11 @@ export function FeedScreen() {
       <FilterDrawer
         isOpen={isFilterOpen}
         onClose={() => setIsFilterOpen(false)}
+      />
+
+      <AgentWalletSetupModal
+        isOpen={showAgentSetup}
+        onClose={() => setShowAgentSetup(false)}
       />
     </div>
   );
