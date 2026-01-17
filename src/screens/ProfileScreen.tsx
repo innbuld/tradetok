@@ -1,58 +1,95 @@
-import { useState, useEffect } from "react";
-import { BadgeCheck, Settings, Share2, Edit2, TrendingUp } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { useParams, useNavigate } from "react-router-dom";
+import {
+  BadgeCheck,
+  Settings,
+  Share2,
+  Edit2,
+  TrendingUp,
+  ArrowLeft,
+} from "lucide-react";
 import { usePearAuthContext } from "@/contexts/PearAuthContext";
 import { useAccount } from "wagmi";
 import { db } from "@/lib/db";
 import type { User, TradePost } from "@/types/database";
 import { usePearPositions, usePearTradeHistory } from "@/hooks/usePear";
+import { calculateAndUpdateUserStats } from "@/lib/userStats";
 
 type Tab = "trades" | "history" | "about";
 
 export function ProfileScreen() {
-  const [activeTab, setActiveTab] = useState<Tab>("trades");
-  const { isAuthenticated } = usePearAuthContext();
+  const { id: routeUserId } = useParams();
+  const navigate = useNavigate();
+  const { user: authUser, logout, isAuthenticated } = usePearAuthContext();
   const { address } = useAccount();
-
+  const [activeTab, setActiveTab] = useState<Tab>("trades");
   const [user, setUser] = useState<User | null>(null);
-  const [userTrades, setUserTrades] = useState<TradePost[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const hasUpdatedStats = useRef(false);
+
+  const [userTrades, setUserTrades] = useState<TradePost[]>([]);
 
   const [isEditing, setIsEditing] = useState(false);
   const [editName, setEditName] = useState("");
   const [editBio, setEditBio] = useState("");
 
-  // Fetch real Pear Protocol data
+  // Pear Hooks
   const { positions: pearPositions, isLoading: positionsLoading } =
     usePearPositions();
   const { trades: pearHistory, isLoading: historyLoading } =
     usePearTradeHistory();
 
-  useEffect(() => {
-    async function fetchUserData() {
-      if (!address) {
-        setIsLoading(false);
-        return;
-      }
+  const fetchUserData = async () => {
+    setIsLoading(true);
+    try {
+      let userData: User | null = null;
 
-      setIsLoading(true);
-      try {
-        const userData = await db.users.getOrCreate(address);
-        setUser(userData);
-        if (userData) {
-          setEditName(userData.username || "");
-          setEditBio(userData.bio || "");
-          const trades = await db.posts.getByUser(userData.id);
-          setUserTrades(trades);
+      if (routeUserId) {
+        // Public Profile View
+        userData = await db.users.getById(routeUserId);
+      } else {
+        // Own Profile View
+        const wallet = authUser?.walletAddress || address;
+        if (wallet) {
+          userData = await db.users.getOrCreate(wallet);
         }
-      } catch (error) {
-        console.error("Error fetching user data:", error);
-      } finally {
-        setIsLoading(false);
       }
-    }
 
+      if (userData) {
+        setUser(userData);
+        setEditName(userData.username || "");
+        setEditBio(userData.bio || "");
+
+        const trades = await db.posts.getByUser(userData.id);
+        setUserTrades(trades);
+      }
+    } catch (error) {
+      console.error("Error fetching user data:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
     fetchUserData();
-  }, [address]);
+  }, [authUser?.walletAddress, address, routeUserId]);
+
+  // Update stats on load
+  useEffect(() => {
+    const updateStats = async () => {
+      if (user?.id && user?.wallet_address && !hasUpdatedStats.current) {
+        hasUpdatedStats.current = true;
+        await calculateAndUpdateUserStats(user.id, user.wallet_address);
+        // Silent refresh of user data to get new stats
+        const updatedUser = await db.users.getById(user.id);
+        if (updatedUser) {
+          // Only update fields that changed to avoid flicker, or just setUser
+          setUser((prev) => (prev ? { ...prev, ...updatedUser } : updatedUser));
+        }
+      }
+    };
+    updateStats();
+  }, [user?.id, user?.wallet_address]);
 
   const saveProfile = async () => {
     if (!user || !editName.trim()) return;
@@ -72,7 +109,9 @@ export function ProfileScreen() {
     }
   };
 
-  if (!isAuthenticated || !address) {
+  const isOwnProfile = !routeUserId || authUser?.id === user?.id;
+
+  if ((!isAuthenticated || !address) && !routeUserId) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center px-6 text-center pb-32">
         <div className="w-20 h-20 rounded-full bg-secondary flex items-center justify-center mb-4">
@@ -131,16 +170,38 @@ export function ProfileScreen() {
         <div className="h-32 bg-gradient-to-br from-primary/30 to-primary/10" />
 
         {/* Actions */}
+        {/* Actions */}
+        <div className="absolute top-4 left-4 z-10">
+          {routeUserId && (
+            <button
+              onClick={() => navigate(-1)}
+              className="p-2 rounded-full bg-background/50 backdrop-blur-sm tap-scale text-foreground hover:bg-background/80"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+          )}
+        </div>
+
         <div className="absolute top-4 right-4 flex gap-2 z-10">
-          <button
-            onClick={() => setIsEditing(true)}
-            className="p-2 rounded-full bg-background/50 backdrop-blur-sm tap-scale"
-          >
-            <Edit2 className="w-5 h-5" />
-          </button>
+          {isOwnProfile && (
+            <button
+              onClick={() => setIsEditing(true)}
+              className="p-2 rounded-full bg-background/50 backdrop-blur-sm tap-scale"
+            >
+              <Edit2 className="w-5 h-5" />
+            </button>
+          )}
           <button className="p-2 rounded-full bg-background/50 backdrop-blur-sm tap-scale">
             <Share2 className="w-5 h-5" />
           </button>
+          {isOwnProfile && (
+            <button
+              onClick={logout}
+              className="p-2 rounded-full bg-background/50 backdrop-blur-sm tap-scale text-destructive"
+            >
+              <Settings className="w-5 h-5" />
+            </button>
+          )}
         </div>
 
         {/* ... (Avatar section remains) ... */}
@@ -279,8 +340,11 @@ export function ProfileScreen() {
               </div>
             ) : pearPositions.length > 0 ? (
               pearPositions.map((position) => {
-                const longAsset = position.longAssets[0]?.coin ?? "UNKNOWN";
-                const shortAsset = position.shortAssets[0]?.coin ?? "USDT";
+                // Join all assets with + for basket display
+                const longAsset =
+                  position.longAssets.map((a) => a.coin).join("+") || "UNKNOWN";
+                const shortAsset =
+                  position.shortAssets.map((a) => a.coin).join("+") || "USDT";
                 const pair = `${longAsset}/${shortAsset}`;
                 const direction =
                   position.longAssets.length > 0 ? "LONG" : "SHORT";
@@ -291,7 +355,28 @@ export function ProfileScreen() {
                     className="bg-card border border-border rounded-xl p-4 tap-scale"
                   >
                     <div className="flex items-center justify-between mb-2">
-                      <span className="font-bold">{pair}</span>
+                      <div className="flex items-center gap-2">
+                        <div className="flex items-center -space-x-2">
+                          {Array.from(
+                            new Set(
+                              pair
+                                .split("/")
+                                .flatMap((side) => side.split("+")),
+                            ),
+                          ).map((asset: string) => (
+                            <img
+                              key={asset}
+                              src={`https://assets.coincap.io/assets/icons/${asset.trim().toLowerCase()}@2x.png`}
+                              onError={(e) => {
+                                e.currentTarget.src = `https://ui-avatars.com/api/?name=${asset}&background=random&color=fff&size=32`;
+                              }}
+                              alt={asset}
+                              className="w-6 h-6 rounded-full border-2 border-background bg-secondary"
+                            />
+                          ))}
+                        </div>
+                        <span className="font-bold">{pair}</span>
+                      </div>
                       <span
                         className={`px-2 py-0.5 rounded text-xs font-bold ${
                           direction === "LONG"
@@ -358,14 +443,17 @@ export function ProfileScreen() {
               </div>
             ) : pearHistory.length > 0 ? (
               pearHistory.map((trade) => {
-                const longAsset =
-                  trade.closedLongAssets?.[0]?.coin ??
-                  trade.longAssets?.[0]?.coin ??
-                  "UNKNOWN";
-                const shortAsset =
-                  trade.closedShortAssets?.[0]?.coin ??
-                  trade.shortAssets?.[0]?.coin ??
-                  "USDC";
+                // Join all assets with + for basket display
+                const longAssets =
+                  trade.closedLongAssets?.map((a) => a.coin) ??
+                  trade.longAssets?.map((a) => a.coin) ??
+                  [];
+                const shortAssets =
+                  trade.closedShortAssets?.map((a) => a.coin) ??
+                  trade.shortAssets?.map((a) => a.coin) ??
+                  [];
+                const longAsset = longAssets.join("+") || "UNKNOWN";
+                const shortAsset = shortAssets.join("+") || "USDC";
                 const pair = `${longAsset}/${shortAsset}`;
 
                 return (
@@ -376,7 +464,28 @@ export function ProfileScreen() {
                     className="bg-card border border-border rounded-xl p-4"
                   >
                     <div className="flex items-center justify-between mb-2">
-                      <span className="font-bold">{pair}</span>
+                      <div className="flex items-center gap-2">
+                        <div className="flex items-center -space-x-2">
+                          {Array.from(
+                            new Set(
+                              pair
+                                .split("/")
+                                .flatMap((side) => side.split("+")),
+                            ),
+                          ).map((asset: string) => (
+                            <img
+                              key={asset}
+                              src={`https://assets.coincap.io/assets/icons/${asset.trim().toLowerCase()}@2x.png`}
+                              onError={(e) => {
+                                e.currentTarget.src = `https://ui-avatars.com/api/?name=${asset}&background=random&color=fff&size=32`;
+                              }}
+                              alt={asset}
+                              className="w-6 h-6 rounded-full border-2 border-background bg-secondary"
+                            />
+                          ))}
+                        </div>
+                        <span className="font-bold">{pair}</span>
+                      </div>
                       <div className="text-right">
                         <span
                           className={`text-sm font-bold ${

@@ -144,7 +144,8 @@ export const postService = {
       .range(offset, offset + limit - 1);
     
     if (error) console.error('Error fetching feed:', error);
-    return (data as TradePostWithCreator[]) || [];
+    
+    return data as TradePostWithCreator[] || [];
   },
 
   // Get posts from followed users (Following feed)
@@ -172,7 +173,8 @@ export const postService = {
       .range(offset, offset + limit - 1);
     
     if (error) console.error('Error fetching following feed:', error);
-    return (data as TradePostWithCreator[]) || [];
+    
+    return data as TradePostWithCreator[] || [];
   },
 
   // Get posts by user

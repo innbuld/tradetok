@@ -120,7 +120,14 @@ export const hyperliquidClient = {
         });
         
         if (!response.ok) return {};
-        return await response.json();
+        const rawData = await response.json();
+        
+        // Convert string prices to numbers
+        const prices: Record<string, number> = {};
+        for (const [key, value] of Object.entries(rawData)) {
+            prices[key] = parseFloat(value as string);
+        }
+        return prices;
       } catch (err) {
           console.error("Failed to fetch mids:", err);
           return {};

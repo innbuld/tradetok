@@ -150,10 +150,14 @@ class PearClient {
    * Create new position (market, trigger, TWAP, or ladder order)
    */
   async createPosition(data: CreatePositionRequest): Promise<CreatePositionResponse> {
-    return this.request<CreatePositionResponse>('/positions', {
+    const body = JSON.stringify(data);
+    console.log("Pear API Request Body:", body);
+    const response = await this.request<CreatePositionResponse>('/positions', {
       method: 'POST',
-      body: JSON.stringify(data),
+      body: body,
     });
+    console.log("Pear API Response:", response);
+    return response;
   }
 
   /**

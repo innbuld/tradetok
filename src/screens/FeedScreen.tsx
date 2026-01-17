@@ -3,6 +3,7 @@ import { Filter, Plus, RefreshCw, TrendingUp } from "lucide-react";
 import { SocialTradePost } from "@/components/SocialTradePost";
 import { CopyTradeModal } from "@/components/CopyTradeModal";
 import { CreateTradeModal } from "@/components/CreateTradeModal";
+import { BasketTradeModal } from "@/components/BasketTradeModal";
 import { FilterDrawer } from "@/components/FilterDrawer";
 import { WalletConnectButton } from "@/components/WalletConnectButton";
 import { usePearAuthContext } from "@/contexts/PearAuthContext";
@@ -24,6 +25,7 @@ export function FeedScreen() {
     null,
   );
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [isBasketOpen, setIsBasketOpen] = useState(false);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
 
   // User liked posts (for optimistic UI)
@@ -304,6 +306,15 @@ export function FeedScreen() {
         isOpen={isCreateOpen}
         onClose={() => setIsCreateOpen(false)}
         onTradeCreated={handleTradeCreated}
+        onSwitchToBasket={() => {
+          setIsCreateOpen(false);
+          setIsBasketOpen(true);
+        }}
+      />
+
+      <BasketTradeModal
+        isOpen={isBasketOpen}
+        onClose={() => setIsBasketOpen(false)}
       />
 
       <FilterDrawer

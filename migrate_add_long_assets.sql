@@ -1,0 +1,2 @@
+ALTER TABLE trade_posts ADD COLUMN IF NOT EXISTS long_assets JSONB;
+ALTER TABLE trade_posts ADD COLUMN IF NOT EXISTS short_assets JSONB;

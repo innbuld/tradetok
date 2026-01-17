@@ -51,6 +51,9 @@ export function QuickTradeModal({
   // Min Notional Size
   const [minNotionalReq, setMinNotionalReq] =
     useState<number>(LEG_MIN_NOTIONAL);
+  const [effectiveMaxLeverage, setEffectiveMaxLeverage] = useState<number>(40);
+  const [basketEffectiveLeverage, setBasketEffectiveLeverage] =
+    useState<number>(1);
   const [meta, setMeta] = useState<AssetMeta[]>([]);
   const [prices, setPrices] = useState<Record<string, number>>({});
 
@@ -83,7 +86,7 @@ export function QuickTradeModal({
     if (!market || meta.length === 0 || Object.keys(prices).length === 0)
       return;
     calculateMinNotional();
-  }, [market, meta, prices]);
+  }, [market, meta, prices, leverage]);
 
   const isStable = (asset: string) =>
     ["USDC", "USDT", "DAI"].includes(asset?.toUpperCase());
@@ -150,7 +153,54 @@ export function QuickTradeModal({
     processSide(longs);
     processSide(shorts);
 
+    // ALLOWED SLIDER MAX: Highest max leverage among all selected assets.
+    let highestMaxLev = 0;
+    const allAssetItems = [...longs, ...shorts];
+
+    if (allAssetItems.length === 0) {
+      highestMaxLev = 40;
+    } else {
+      allAssetItems.forEach((assetItem) => {
+        if (isStable(assetItem.asset)) return;
+        const assetMeta = meta.find((m) => m.name === assetItem.asset);
+        if (assetMeta && assetMeta.maxLeverage) {
+          highestMaxLev = Math.max(highestMaxLev, assetMeta.maxLeverage);
+        }
+      });
+    }
+
+    if (highestMaxLev === 0) highestMaxLev = 40;
+    setEffectiveMaxLeverage(highestMaxLev);
+
+    if (leverage > highestMaxLev) {
+      setLeverage(highestMaxLev);
+    }
+
     setMinNotionalReq(globalRequiredMin);
+
+    // Calculate Effective Basket Leverage (Harmonic Mean)
+    const allAssets = [...longs, ...shorts];
+    const totalW = allAssets.reduce((s, a) => s + (a.weight || 0), 0);
+
+    if (totalW === 0) {
+      setBasketEffectiveLeverage(leverage);
+      return;
+    }
+
+    let sumInverseLev = 0;
+
+    allAssets.forEach((item) => {
+      if (isStable(item.asset)) return;
+      const assetMeta = meta.find((m) => m.name === item.asset);
+      const assetMax = assetMeta?.maxLeverage || 40;
+      const actualAssetLev = Math.min(leverage, assetMax);
+
+      const w = (item.weight || 0) / totalW;
+      sumInverseLev += w / actualAssetLev;
+    });
+
+    const effectiveBasketLev = sumInverseLev > 0 ? 1 / sumInverseLev : leverage;
+    setBasketEffectiveLeverage(effectiveBasketLev);
   };
 
   const fetchMarketData = async () => {
@@ -316,7 +366,7 @@ export function QuickTradeModal({
 
     // Check Margin against Min Notional / Leverage
     const marginAmount = parseFloat(amount);
-    const minMarginReq = minNotionalReq / leverage;
+    const minMarginReq = minNotionalReq / basketEffectiveLeverage;
 
     // Allow small float error
     if (marginAmount < minMarginReq - 0.01) {
@@ -414,7 +464,7 @@ export function QuickTradeModal({
     }
   };
 
-  const displayMinReq = minNotionalReq / leverage;
+  const displayMinReq = minNotionalReq / basketEffectiveLeverage;
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center">
@@ -508,7 +558,7 @@ export function QuickTradeModal({
           </div>
 
           <div>
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center justify-between mb-3">
               <label className="text-sm font-medium flex items-center gap-2">
                 Leverage
                 <Info className="w-3 h-3 text-muted-foreground" />
@@ -518,20 +568,22 @@ export function QuickTradeModal({
               </span>
             </div>
 
-            <div className="grid grid-cols-5 gap-2">
-              {[1, 2, 3, 5, 10].map((lev) => (
-                <button
-                  key={lev}
-                  onClick={() => setLeverage(lev)}
-                  className={`py-2 rounded-xl text-sm font-bold transition-all tap-scale ${
-                    leverage === lev
-                      ? "bg-primary text-primary-foreground shadow-lg shadow-primary/20 scale-105"
-                      : "bg-secondary text-muted-foreground hover:bg-secondary/80"
-                  }`}
-                >
-                  {lev}x
-                </button>
-              ))}
+            <input
+              type="range"
+              min={1}
+              max={effectiveMaxLeverage}
+              value={leverage}
+              onChange={(e) => setLeverage(parseInt(e.target.value))}
+              className="w-full h-2 bg-secondary rounded-lg appearance-none cursor-pointer accent-primary"
+            />
+            <div className="flex justify-between text-[10px] text-muted-foreground mt-1">
+              <span>1x</span>
+              {effectiveMaxLeverage < 40 && (
+                <span className="text-yellow-500">
+                  Max {effectiveMaxLeverage}x
+                </span>
+              )}
+              <span>{effectiveMaxLeverage}x</span>
             </div>
           </div>
 

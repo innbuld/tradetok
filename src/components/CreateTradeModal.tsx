@@ -41,13 +41,16 @@ interface CreateTradeModalProps {
   isOpen: boolean;
   onClose: () => void;
   onTradeCreated: () => void;
+  onSwitchToBasket?: () => void;
 }
 
 export function CreateTradeModal({
   isOpen,
   onClose,
   onTradeCreated,
+  onSwitchToBasket,
 }: CreateTradeModalProps) {
+  // ... existing hooks ...
   const { isAuthenticated, agentWallet } = usePearAuthContext();
   const { address } = useAccount();
   const { toast } = useToast();
@@ -75,6 +78,9 @@ export function CreateTradeModal({
   // Min Notional Size Logic
   const [minNotionalReq, setMinNotionalReq] =
     useState<number>(LEG_MIN_NOTIONAL);
+  const [effectiveMaxLeverage, setEffectiveMaxLeverage] = useState<number>(40);
+  const [basketEffectiveLeverage, setBasketEffectiveLeverage] =
+    useState<number>(1);
   const [meta, setMeta] = useState<AssetMeta[]>([]);
   const [prices, setPrices] = useState<Record<string, number>>({});
 
@@ -187,7 +193,7 @@ export function CreateTradeModal({
     )
       return;
     calculateMinNotional();
-  }, [selectedMarket, meta, prices]);
+  }, [selectedMarket, meta, prices, leverage]);
 
   const isStable = (asset: string) =>
     ["USDC", "USDT", "DAI"].includes(asset?.toUpperCase());
@@ -268,13 +274,68 @@ export function CreateTradeModal({
       });
     };
 
-    processSide(longAssets);
     processSide(shortAssets);
+
+    // Calculate effective max leverage (Slider Max limits)
+    // We set the slider max to the HIGHEST max leverage among all assets.
+    // e.g. BTC(40x) + LIT(5x) -> Slider Max 40x.
+    // e.g. LINK(20x) + KAITO(3x) -> Slider Max 20x.
+    let highestMaxLev = 0;
+    const allAssetItems = [...longAssets, ...shortAssets];
+
+    if (allAssetItems.length === 0) {
+      highestMaxLev = 40;
+    } else {
+      allAssetItems.forEach((assetItem) => {
+        if (isStable(assetItem.asset)) return;
+        const assetMeta = meta.find((m) => m.name === assetItem.asset);
+        // If asset found, consider its max. If not found (maybe custom?), ignore or default?
+        // Safest is to rely on known meta.
+        if (assetMeta && assetMeta.maxLeverage) {
+          highestMaxLev = Math.max(highestMaxLev, assetMeta.maxLeverage);
+        }
+      });
+    }
+
+    // Fallback if we found no valid assets (e.g. only stables or unknown assets)
+    if (highestMaxLev === 0) highestMaxLev = 40;
+
+    setEffectiveMaxLeverage(highestMaxLev);
+
+    // If current leverage is higher than the computed max, clamp it.
+    if (leverage > highestMaxLev && highestMaxLev > 0) {
+      // We only auto-clamp downwards.
+      setLeverage(highestMaxLev);
+    }
 
     // If result is still 0 (e.g. only stablecoins?), default to LEG_MIN_NOTIONAL
     if (globalRequiredMin === 0) globalRequiredMin = LEG_MIN_NOTIONAL;
 
     setMinNotionalReq(globalRequiredMin);
+
+    // Calculate Effective Basket Leverage (Harmonic Mean)
+    const allAssets = [...longAssets, ...shortAssets];
+    const totalW = allAssets.reduce((s, a) => s + (a.weight || 0), 0);
+
+    if (totalW === 0) {
+      setBasketEffectiveLeverage(leverage);
+      return;
+    }
+
+    let sumInverseLev = 0;
+
+    allAssets.forEach((item) => {
+      if (isStable(item.asset)) return;
+      const assetMeta = meta.find((m) => m.name === item.asset);
+      const assetMax = assetMeta?.maxLeverage || 40;
+      const actualAssetLev = Math.min(leverage, assetMax);
+
+      const w = (item.weight || 0) / totalW;
+      sumInverseLev += w / actualAssetLev;
+    });
+
+    const effectiveBasketLev = sumInverseLev > 0 ? 1 / sumInverseLev : leverage;
+    setBasketEffectiveLeverage(effectiveBasketLev);
   };
 
   const fetchMarketData = async () => {
@@ -445,7 +506,7 @@ export function CreateTradeModal({
 
     // Check Margin against Min Notional / Leverage
     const marginAmount = parseFloat(amount);
-    const minMarginReq = minNotionalReq / leverage;
+    const minMarginReq = minNotionalReq / basketEffectiveLeverage;
 
     if (marginAmount < minMarginReq - 0.01) {
       toast({
@@ -577,7 +638,7 @@ export function CreateTradeModal({
     }
   };
 
-  const displayMinReq = minNotionalReq / leverage;
+  const displayMinReq = minNotionalReq / basketEffectiveLeverage;
 
   if (!isOpen) return null;
 
@@ -592,12 +653,23 @@ export function CreateTradeModal({
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-border">
           <h2 className="text-xl font-bold">New Trade</h2>
-          <button
-            onClick={onClose}
-            className="p-2 rounded-full hover:bg-secondary"
-          >
-            <X className="w-6 h-6" />
-          </button>
+          <div className="flex items-center gap-2">
+            {onSwitchToBasket && (
+              <button
+                onClick={onSwitchToBasket}
+                className="text-xs font-bold bg-primary/10 text-primary px-3 py-1.5 rounded-lg hover:bg-primary/20 transition-colors"
+                title="Switch to Basket Trading"
+              >
+                🧺 Basket Mode
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              className="p-2 rounded-full hover:bg-secondary"
+            >
+              <X className="w-6 h-6" />
+            </button>
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-6">
@@ -750,7 +822,7 @@ export function CreateTradeModal({
 
           {/* Leverage */}
           <div>
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center justify-between mb-3">
               <label className="text-sm font-medium flex items-center gap-2">
                 Leverage <Info className="w-3 h-3 text-muted-foreground" />
               </label>
@@ -758,20 +830,22 @@ export function CreateTradeModal({
                 {leverage}x
               </span>
             </div>
-            <div className="grid grid-cols-5 gap-2">
-              {[1, 2, 3, 5, 10].map((lev) => (
-                <button
-                  key={lev}
-                  onClick={() => setLeverage(lev)}
-                  className={`py-2 rounded-xl text-sm font-bold transition-all ${
-                    leverage === lev
-                      ? "bg-primary text-primary-foreground shadow-lg shadow-primary/20 scale-105"
-                      : "bg-secondary text-muted-foreground hover:bg-secondary/80"
-                  }`}
-                >
-                  {lev}x
-                </button>
-              ))}
+            <input
+              type="range"
+              min={1}
+              max={effectiveMaxLeverage}
+              value={leverage}
+              onChange={(e) => setLeverage(parseInt(e.target.value))}
+              className="w-full h-2 bg-secondary rounded-lg appearance-none cursor-pointer accent-primary"
+            />
+            <div className="flex justify-between text-[10px] text-muted-foreground mt-1">
+              <span>1x</span>
+              {effectiveMaxLeverage < 40 && (
+                <span className="text-yellow-500">
+                  Max {effectiveMaxLeverage}x
+                </span>
+              )}
+              <span>{effectiveMaxLeverage}x</span>
             </div>
           </div>
 

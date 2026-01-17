@@ -9,6 +9,7 @@ import {
   TrendingDown,
 } from "lucide-react";
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import type { TradePostWithCreator } from "@/types/database";
 import { db } from "@/lib/db";
 import { hyperliquidClient } from "@/lib/hyperliquidClient";
@@ -94,6 +95,7 @@ export function SocialTradePost({
   onFollow,
   onCopyTrade,
 }: SocialTradePostProps) {
+  const navigate = useNavigate();
   const [isFollowing, setIsFollowing] = useState(false);
   const [localLikeCount, setLocalLikeCount] = useState(post.likes_count);
   const [localIsLiked, setLocalIsLiked] = useState(isLiked);
@@ -122,6 +124,11 @@ export function SocialTradePost({
   // Check live position status from Hyperliquid
   useEffect(() => {
     async function checkPositionStatus() {
+      // If we already know it's closed (cached), don't check again
+      if (isPositionOpen === false) {
+        return;
+      }
+
       // Only check if the post says it's open (to avoid unnecessary API calls)
       if (!post.is_open) {
         setIsPositionOpen(false);
@@ -186,7 +193,7 @@ export function SocialTradePost({
     // Poll every 30 seconds for live updates
     const interval = setInterval(checkPositionStatus, 30000);
     return () => clearInterval(interval);
-  }, [post.pair, post.is_open, post.creator.wallet_address]);
+  }, [post.pair, post.is_open, post.creator.wallet_address, isPositionOpen]);
 
   // Sync isLiked prop
   useEffect(() => {
@@ -222,28 +229,38 @@ export function SocialTradePost({
     <div className="min-h-fit flex flex-col p-4 animate-fade-in-up">
       {/* Header - Creator Info */}
       <div className="flex items-center gap-3 mb-4">
-        <div className="w-12 h-12 rounded-full bg-gradient-to-br from-primary/20 to-purple-500/20 flex items-center justify-center text-2xl border border-border/50">
-          {post.creator.avatar_emoji}
-        </div>
-
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="font-semibold truncate">
-              {post.creator.username}
-            </span>
-            {post.creator.is_verified && (
-              <BadgeCheck className="w-4 h-4 text-primary flex-shrink-0" />
-            )}
-            <LeverageBadge leverage={post.leverage} />
+        <div
+          className="flex-1 flex items-center gap-3 min-w-0 cursor-pointer group hover:opacity-80 transition-opacity"
+          onClick={(e) => {
+            e.stopPropagation();
+            navigate(`/profile/${post.creator.id}`);
+          }}
+        >
+          <div className="w-12 h-12 rounded-full bg-gradient-to-br from-primary/20 to-purple-500/20 flex items-center justify-center text-2xl border border-border/50 group-hover:border-primary/50 transition-colors">
+            {post.creator.avatar_emoji}
           </div>
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <span>{formatNumber(post.creator.total_followers)} followers</span>
-            <span>•</span>
-            <span className="text-success">
-              {post.creator.win_rate.toFixed(0)}% win
-            </span>
-            <span>•</span>
-            <span>{formatTimeAgo(post.created_at)}</span>
+
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="font-semibold truncate group-hover:text-primary transition-colors">
+                {post.creator.username}
+              </span>
+              {post.creator.is_verified && (
+                <BadgeCheck className="w-4 h-4 text-primary flex-shrink-0" />
+              )}
+              <LeverageBadge leverage={post.leverage} />
+            </div>
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <span>
+                {formatNumber(post.creator.total_followers)} followers
+              </span>
+              <span>•</span>
+              <span className="text-success">
+                {post.creator.win_rate.toFixed(0)}% win
+              </span>
+              <span>•</span>
+              <span>{formatTimeAgo(post.created_at)}</span>
+            </div>
           </div>
         </div>
 
@@ -271,30 +288,57 @@ export function SocialTradePost({
       {/* Trade Card */}
       <div className="trade-card-gradient rounded-2xl p-4 border border-border/50 flex flex-col bg-gradient-to-br from-card to-card/50">
         {/* Pair and Direction */}
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2">
-            <span className="text-2xl font-bold">{post.pair}</span>
-            {/* Basket Trade Indicator */}
-            {post.pair.includes("+") && (
-              <span className="px-2 py-0.5 rounded-md bg-primary/10 text-primary text-xs font-medium">
-                🧺 Basket
-              </span>
-            )}
-            {isCheckingStatus ? (
-              <span className="px-2 py-0.5 rounded-full bg-muted text-muted-foreground text-xs font-medium">
-                ● CHECKING...
-              </span>
-            ) : isPositionOpen ? (
-              <span className="px-2 py-0.5 rounded-full bg-success/20 text-success text-xs font-medium animate-pulse">
-                ● LIVE
-              </span>
-            ) : (
-              <span className="px-2 py-0.5 rounded-full bg-destructive/20 text-destructive text-xs font-medium">
-                ● CLOSED
-              </span>
-            )}
+        <div className="flex flex-col gap-3 mb-4">
+          <div className="flex items-center justify-between">
+            {/* Icons */}
+            <div className="flex items-center -space-x-2">
+              {Array.from(
+                new Set(
+                  post.pair.split("/").flatMap((side) => side.split("+")),
+                ),
+              ).map((asset) => (
+                <img
+                  key={asset}
+                  src={`https://assets.coincap.io/assets/icons/${asset.trim().toLowerCase()}@2x.png`}
+                  onError={(e) => {
+                    e.currentTarget.src = `https://ui-avatars.com/api/?name=${asset}&background=random&color=fff&size=32`;
+                  }}
+                  alt={asset}
+                  className="w-8 h-8 rounded-full border-2 border-background bg-secondary object-cover"
+                />
+              ))}
+            </div>
+
+            {/* Badges */}
+            <div className="flex flex-col items-end gap-1">
+              {post.pair.includes("+") && (
+                <span className="px-2 py-0.5 rounded-md bg-primary/10 text-primary text-[10px] font-bold uppercase tracking-wider border border-primary/20">
+                  Basket
+                </span>
+              )}
+              {isCheckingStatus ? (
+                <span className="px-2 py-0.5 rounded-full bg-muted text-muted-foreground text-[10px] font-bold uppercase tracking-wider border border-border">
+                  Checking
+                </span>
+              ) : isPositionOpen ? (
+                <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-success/10 text-success text-[10px] font-bold uppercase tracking-wider border border-success/20">
+                  <span className="relative flex h-1.5 w-1.5">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-success"></span>
+                  </span>
+                  Live
+                </div>
+              ) : (
+                <span className="px-2 py-0.5 rounded-full bg-destructive/10 text-destructive text-[10px] font-bold uppercase tracking-wider border border-destructive/20">
+                  Closed
+                </span>
+              )}
+              <DirectionBadge direction={post.direction} />
+            </div>
           </div>
-          <DirectionBadge direction={post.direction} />
+
+          {/* Pair Name */}
+          <span className="text-2xl font-bold tracking-tight">{post.pair}</span>
         </div>
 
         {/* PnL Display */}
@@ -357,17 +401,26 @@ export function SocialTradePost({
         )}
 
         {/* Creator Stats */}
-        <div className="pt-3 border-t border-border/30 flex items-center gap-3 text-sm text-muted-foreground">
-          <span>👤 {post.creator.total_trades} trades</span>
-          <span className="text-success">
-            📈 {post.creator.win_rate.toFixed(0)}% win rate
+        <div className="pt-3 border-t border-border/30 flex items-center gap-4 text-sm text-muted-foreground">
+          <span className="flex items-center gap-1.5">
+            <TrendingUp className="w-3.5 h-3.5" />
+            {post.creator.total_trades} trades
+          </span>
+          <span className="text-success flex items-center gap-1.5">
+            <BadgeCheck className="w-3.5 h-3.5" />
+            {post.creator.win_rate.toFixed(0)}% win rate
           </span>
           <span
-            className={
+            className={`flex items-center gap-1.5 ${
               post.creator.total_pnl >= 0 ? "text-success" : "text-destructive"
-            }
+            }`}
           >
-            💰 {post.creator.total_pnl >= 0 ? "+" : ""}$
+            {post.creator.total_pnl >= 0 ? (
+              <TrendingUp className="w-3.5 h-3.5" />
+            ) : (
+              <TrendingDown className="w-3.5 h-3.5" />
+            )}
+            {post.creator.total_pnl >= 0 ? "+" : ""}$
             {post.creator.total_pnl.toLocaleString()}
           </span>
         </div>

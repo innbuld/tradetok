@@ -78,6 +78,9 @@ export function CopyTradeModal({
   // Min Size Calculation State
   const [minNotionalReq, setMinNotionalReq] =
     useState<number>(LEG_MIN_NOTIONAL);
+  const [effectiveMaxLeverage, setEffectiveMaxLeverage] = useState<number>(40);
+  const [basketEffectiveLeverage, setBasketEffectiveLeverage] =
+    useState<number>(1);
   const [isMarketValid, setIsMarketValid] = useState(true);
   const [meta, setMeta] = useState<AssetMeta[]>([]);
   const [prices, setPrices] = useState<Record<string, number>>({});
@@ -150,7 +153,7 @@ export function CopyTradeModal({
   useEffect(() => {
     if (!trade || meta.length === 0 || Object.keys(prices).length === 0) return;
     calculateMinNotional();
-  }, [trade, meta, prices]);
+  }, [trade, meta, prices, leverage]);
 
   const isStable = (asset: string) =>
     ["USDC", "USDT", "DAI"].includes(asset?.toUpperCase());
@@ -233,7 +236,54 @@ export function CopyTradeModal({
     processSide(longs);
     processSide(shorts);
 
+    // ALLOWED SLIDER MAX: Highest max leverage among all selected assets.
+    let highestMaxLev = 0;
+    const allAssetItems = [...longs, ...shorts];
+
+    if (allAssetItems.length === 0) {
+      highestMaxLev = 40;
+    } else {
+      allAssetItems.forEach((assetItem) => {
+        if (isStable(assetItem.asset)) return;
+        const assetMeta = meta.find((m) => m.name === assetItem.asset);
+        if (assetMeta && assetMeta.maxLeverage) {
+          highestMaxLev = Math.max(highestMaxLev, assetMeta.maxLeverage);
+        }
+      });
+    }
+
+    if (highestMaxLev === 0) highestMaxLev = 40;
+    setEffectiveMaxLeverage(highestMaxLev);
+
+    if (leverage > highestMaxLev) {
+      setLeverage(highestMaxLev);
+    }
+
     setMinNotionalReq(globalRequiredMin);
+
+    // Calculate Effective Basket Leverage (Harmonic Mean)
+    const allAssets = [...longs, ...shorts];
+    const totalW = allAssets.reduce((s, a) => s + (a.weight || 0), 0);
+
+    if (totalW === 0) {
+      setBasketEffectiveLeverage(leverage);
+      return;
+    }
+
+    let sumInverseLev = 0;
+
+    allAssets.forEach((item) => {
+      if (isStable(item.asset)) return;
+      const assetMeta = meta.find((m) => m.name === item.asset);
+      const assetMax = assetMeta?.maxLeverage || 40;
+      const actualAssetLev = Math.min(leverage, assetMax);
+
+      const w = (item.weight || 0) / totalW;
+      sumInverseLev += w / actualAssetLev;
+    });
+
+    const effectiveBasketLev = sumInverseLev > 0 ? 1 / sumInverseLev : leverage;
+    setBasketEffectiveLeverage(effectiveBasketLev);
   };
 
   // Use the selected leverage directly
@@ -425,7 +475,7 @@ export function CopyTradeModal({
     }
 
     // Validate amount against calculated minimum (accounting for leverage)
-    const minMarginReq = minNotionalReq / adjustedLeverage;
+    const minMarginReq = minNotionalReq / basketEffectiveLeverage;
     if (actualAmount < minMarginReq - 0.01) {
       toast({
         title: "Amount Too Low",
@@ -646,7 +696,8 @@ export function CopyTradeModal({
                     <div className="flex items-center gap-1 text-xs text-muted-foreground">
                       <AlertCircle className="w-3 h-3" />
                       <span>
-                        Min: ${(minNotionalReq / adjustedLeverage).toFixed(2)}
+                        Min: $
+                        {(minNotionalReq / basketEffectiveLeverage).toFixed(2)}
                       </span>
                     </div>
                     {isAuthenticated && availableBalance > 0 && (
@@ -712,13 +763,18 @@ export function CopyTradeModal({
                   value={[leverage]}
                   onValueChange={(v) => setLeverage(v[0])}
                   min={1}
-                  max={20}
+                  max={effectiveMaxLeverage}
                   step={1}
                   className="mb-2"
                 />
                 <div className="flex justify-between text-xs text-muted-foreground">
                   <span>1x (Safe)</span>
-                  <span>20x (Risky)</span>
+                  {effectiveMaxLeverage < 40 && (
+                    <span className="text-yellow-500">
+                      Max {effectiveMaxLeverage}x
+                    </span>
+                  )}
+                  <span>{effectiveMaxLeverage}x</span>
                 </div>
               </div>
 

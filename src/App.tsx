@@ -9,6 +9,7 @@ import { PearAuthProvider } from "@/contexts/PearAuthContext";
 import { config, projectId } from "@/lib/wagmiConfig";
 import Index from "./pages/Index";
 import NotFound from "./pages/NotFound";
+import { ProfileScreen } from "./screens/ProfileScreen";
 
 // Initialize Web3Modal
 createWeb3Modal({
@@ -30,6 +31,7 @@ const App = () => (
           <BrowserRouter>
             <Routes>
               <Route path="/" element={<Index />} />
+              <Route path="/profile/:id" element={<ProfileScreen />} />
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
               <Route path="*" element={<NotFound />} />
             </Routes>

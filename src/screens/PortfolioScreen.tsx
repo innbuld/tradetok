@@ -164,8 +164,12 @@ export function PortfolioScreen() {
 
   // Format position for display
   const formatPosition = (position: OpenPosition) => {
-    const longAsset = position.longAssets[0]?.coin ?? "UNKNOWN";
-    const shortAsset = position.shortAssets[0]?.coin ?? "USDT";
+    // Join all long assets with + (e.g., "BTC+ETH")
+    const longAsset =
+      position.longAssets.map((a) => a.coin).join("+") || "UNKNOWN";
+    // Join all short assets with + (e.g., "SOL+LIT")
+    const shortAsset =
+      position.shortAssets.map((a) => a.coin).join("+") || "USDT";
     const pair = `${longAsset}/${shortAsset}`;
     const direction = position.longAssets.length > 0 ? "LONG" : "SHORT";
     const entryPrice =
@@ -191,6 +195,8 @@ export function PortfolioScreen() {
         position.shortAssets[0]?.leverage ??
         1,
       createdAt: new Date(position.createdAt).toLocaleDateString(),
+      isBasket:
+        position.longAssets.length > 1 || position.shortAssets.length > 1,
     };
   };
 
@@ -409,6 +415,25 @@ export function PortfolioScreen() {
                   >
                     <div className="flex items-center justify-between mb-3">
                       <div className="flex items-center gap-3">
+                        <div className="flex items-center -space-x-2 mr-1">
+                          {Array.from(
+                            new Set(
+                              formatted.pair
+                                .split("/")
+                                .flatMap((side) => side.split("+")),
+                            ),
+                          ).map((asset: string) => (
+                            <img
+                              key={asset}
+                              src={`https://assets.coincap.io/assets/icons/${asset.trim().toLowerCase()}@2x.png`}
+                              onError={(e) => {
+                                e.currentTarget.src = `https://ui-avatars.com/api/?name=${asset}&background=random&color=fff&size=32`;
+                              }}
+                              alt={asset}
+                              className="w-8 h-8 rounded-full border-2 border-background bg-secondary"
+                            />
+                          ))}
+                        </div>
                         <span className="text-lg font-bold">
                           {formatted.pair}
                         </span>
@@ -517,17 +542,19 @@ export function PortfolioScreen() {
           </div>
         ) : (
           tradeHistory.map((trade) => {
-            // Try to get asset names from different possible fields
-            const longAsset =
-              trade.closedLongAssets?.[0]?.coin ??
-              trade.positionLongAssets?.[0] ??
-              trade.longAssets?.[0]?.coin ??
-              "UNKNOWN";
-            const shortAsset =
-              trade.closedShortAssets?.[0]?.coin ??
-              trade.positionShortAssets?.[0] ??
-              trade.shortAssets?.[0]?.coin ??
-              "USDC";
+            // Join all assets with + for basket display
+            const longAssets =
+              trade.closedLongAssets?.map((a) => a.coin) ??
+              trade.positionLongAssets ??
+              trade.longAssets?.map((a) => a.coin) ??
+              [];
+            const shortAssets =
+              trade.closedShortAssets?.map((a) => a.coin) ??
+              trade.positionShortAssets ??
+              trade.shortAssets?.map((a) => a.coin) ??
+              [];
+            const longAsset = longAssets.join("+") || "UNKNOWN";
+            const shortAsset = shortAssets.join("+") || "USDC";
             const pair = `${longAsset}/${shortAsset}`;
 
             return (
@@ -536,7 +563,26 @@ export function PortfolioScreen() {
                 className="bg-card border border-border rounded-xl p-4"
               >
                 <div className="flex items-center justify-between mb-2">
-                  <span className="font-medium">{pair}</span>
+                  <div className="flex items-center gap-2">
+                    <div className="flex items-center -space-x-2">
+                      {Array.from(
+                        new Set(
+                          pair.split("/").flatMap((side) => side.split("+")),
+                        ),
+                      ).map((asset: string) => (
+                        <img
+                          key={asset}
+                          src={`https://assets.coincap.io/assets/icons/${asset.trim().toLowerCase()}@2x.png`}
+                          onError={(e) => {
+                            e.currentTarget.src = `https://ui-avatars.com/api/?name=${asset}&background=random&color=fff&size=32`;
+                          }}
+                          alt={asset}
+                          className="w-6 h-6 rounded-full border-2 border-background bg-secondary"
+                        />
+                      ))}
+                    </div>
+                    <span className="font-medium">{pair}</span>
+                  </div>
                   <div className="text-right">
                     <span
                       className={`text-sm font-bold ${
