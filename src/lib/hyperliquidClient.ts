@@ -16,6 +16,14 @@ export interface AssetMeta {
   onlyIsolated: boolean;
 }
 
+export interface HyperliquidPosition {
+  coin: string;
+  size: number;
+  entryPrice: number;
+  unrealizedPnl: number;
+  leverage: number;
+}
+
 export const hyperliquidClient = {
   async getPortfolio(address: string): Promise<HyperliquidPortfolio> {
     try {
@@ -117,5 +125,37 @@ export const hyperliquidClient = {
           console.error("Failed to fetch mids:", err);
           return {};
       }
+  },
+
+  // Fetch open positions for an address
+  async getPositions(address: string): Promise<HyperliquidPosition[]> {
+    try {
+      const response = await fetch(HYPERLIQUID_INFO_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "clearinghouseState",
+          user: address,
+        }),
+      });
+      
+      if (!response.ok) return [];
+      
+      const data = await response.json();
+      
+      if (!data || !data.assetPositions) return [];
+      
+      // Map to a simpler structure
+      return data.assetPositions.map((pos: { position: { coin: string; szi: string; entryPx: string; unrealizedPnl: string; leverage: { value: string } } }) => ({
+        coin: pos.position.coin,
+        size: parseFloat(pos.position.szi || "0"),
+        entryPrice: parseFloat(pos.position.entryPx || "0"),
+        unrealizedPnl: parseFloat(pos.position.unrealizedPnl || "0"),
+        leverage: parseFloat(pos.position.leverage?.value || "1"),
+      })).filter((p: HyperliquidPosition) => p.size !== 0); // Only return positions with non-zero size
+    } catch (err) {
+      console.error("Failed to fetch positions:", err);
+      return [];
+    }
   }
 };

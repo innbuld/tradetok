@@ -11,6 +11,7 @@ import {
   AlertCircle,
   Smartphone,
   Globe,
+  Settings,
 } from "lucide-react";
 import { useAccount, useBalance } from "wagmi";
 import { positions as mockPositions } from "@/data/mockData";
@@ -24,6 +25,7 @@ import { pearClient } from "@/lib/pearClient";
 import { hyperliquidClient } from "@/lib/hyperliquidClient";
 import { useToast } from "@/hooks/use-toast";
 import type { OpenPosition } from "@/types/pear";
+import { RiskParametersModal } from "@/components/RiskParametersModal";
 
 // Arbitrum One USDC Address
 const USDC_ADDRESS = "0xaf88d065e77c8cC2239327C5EDb3A432268e5831";
@@ -68,6 +70,8 @@ export function PortfolioScreen() {
   const [closingPositionId, setClosingPositionId] = useState<string | null>(
     null,
   );
+  const [riskModalPosition, setRiskModalPosition] =
+    useState<OpenPosition | null>(null);
 
   // Fetch Hyperliquid Balance
   const fetchHlBalance = async () => {
@@ -443,7 +447,7 @@ export function PortfolioScreen() {
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-3 gap-4 text-sm">
+                    <div className="grid grid-cols-3 gap-4 text-sm mb-3">
                       <div>
                         <p className="text-muted-foreground mb-0.5">Entry</p>
                         <p className="font-medium">{formatted.entryPrice}</p>
@@ -456,6 +460,47 @@ export function PortfolioScreen() {
                         <p className="text-muted-foreground mb-0.5">Margin</p>
                         <p className="font-medium">{formatted.marginUsed}</p>
                       </div>
+                    </div>
+
+                    {/* TP/SL Display */}
+                    <div className="flex items-center justify-between pt-3 border-t border-border/50">
+                      <div className="flex items-center gap-3 text-xs">
+                        {position.takeProfit ? (
+                          <div className="flex items-center gap-1 text-success">
+                            <TrendingUp className="w-3 h-3" />
+                            <span>
+                              TP:{" "}
+                              {position.takeProfit.type === "PERCENTAGE"
+                                ? `${position.takeProfit.value}%`
+                                : `$${position.takeProfit.value}`}
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="text-muted-foreground">No TP</span>
+                        )}
+                        {position.stopLoss ? (
+                          <div className="flex items-center gap-1 text-destructive">
+                            <TrendingDown className="w-3 h-3" />
+                            <span>
+                              SL:{" "}
+                              {position.stopLoss.type === "PERCENTAGE"
+                                ? `${position.stopLoss.value}%`
+                                : `$${position.stopLoss.value}`}
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="text-muted-foreground">No SL</span>
+                        )}
+                      </div>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setRiskModalPosition(position);
+                        }}
+                        className="p-2 rounded-lg bg-secondary/50 hover:bg-secondary tap-scale transition-colors"
+                      >
+                        <Settings className="w-4 h-4" />
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -471,37 +516,58 @@ export function PortfolioScreen() {
             <p>No trade history yet</p>
           </div>
         ) : (
-          tradeHistory.map((trade) => (
-            <div
-              key={trade.tradeId}
-              className="bg-card border border-border rounded-xl p-4"
-            >
-              <div className="flex items-center justify-between mb-2">
-                <span className="font-medium">
-                  {trade.longAssets[0]?.coin ?? "UNKNOWN"}/
-                  {trade.shortAssets[0]?.coin ?? "USDT"}
-                </span>
-                <span
-                  className={`text-sm font-bold ${
-                    trade.status === "CLOSED"
-                      ? "text-muted-foreground"
-                      : (trade.realizedPnl ?? 0) >= 0
-                        ? "text-success"
-                        : "text-destructive"
-                  }`}
-                >
-                  {trade.realizedPnl !== undefined
-                    ? `${trade.realizedPnl >= 0 ? "+" : ""}$${trade.realizedPnl.toFixed(2)}`
-                    : trade.status}
-                </span>
+          tradeHistory.map((trade) => {
+            // Try to get asset names from different possible fields
+            const longAsset =
+              trade.closedLongAssets?.[0]?.coin ??
+              trade.positionLongAssets?.[0] ??
+              trade.longAssets?.[0]?.coin ??
+              "UNKNOWN";
+            const shortAsset =
+              trade.closedShortAssets?.[0]?.coin ??
+              trade.positionShortAssets?.[0] ??
+              trade.shortAssets?.[0]?.coin ??
+              "USDC";
+            const pair = `${longAsset}/${shortAsset}`;
+
+            return (
+              <div
+                key={trade.tradeHistoryId || trade.tradeId || trade.positionId}
+                className="bg-card border border-border rounded-xl p-4"
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <span className="font-medium">{pair}</span>
+                  <div className="text-right">
+                    <span
+                      className={`text-sm font-bold ${
+                        (trade.realizedPnl ?? 0) >= 0
+                          ? "text-success"
+                          : "text-destructive"
+                      }`}
+                    >
+                      {trade.realizedPnlPercentage !== undefined
+                        ? `${trade.realizedPnlPercentage >= 0 ? "+" : ""}${(trade.realizedPnlPercentage * 100).toFixed(2)}%`
+                        : trade.status || "CLOSED"}
+                    </span>
+                    {trade.realizedPnl !== undefined && (
+                      <p className="text-xs text-muted-foreground">
+                        {trade.realizedPnl >= 0 ? "+" : ""}$
+                        {trade.realizedPnl.toFixed(2)}
+                      </p>
+                    )}
+                  </div>
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  {(trade.createdAt || trade.openedAt) &&
+                    new Date(
+                      trade.createdAt || trade.openedAt!,
+                    ).toLocaleString()}
+                  {trade.closedAt &&
+                    ` → ${new Date(trade.closedAt).toLocaleString()}`}
+                </div>
               </div>
-              <div className="text-xs text-muted-foreground">
-                {trade.openedAt && new Date(trade.openedAt).toLocaleString()}
-                {trade.closedAt &&
-                  ` → ${new Date(trade.closedAt).toLocaleString()}`}
-              </div>
-            </div>
-          ))
+            );
+          })
         )}
       </div>
 
@@ -537,6 +603,17 @@ export function PortfolioScreen() {
           </div>
         </div>
       </div>
+
+      {/* Risk Parameters Modal */}
+      <RiskParametersModal
+        position={riskModalPosition}
+        isOpen={!!riskModalPosition}
+        onClose={() => setRiskModalPosition(null)}
+        onSuccess={() => {
+          refetchPositions();
+          refetchAccount();
+        }}
+      />
     </div>
   );
 }

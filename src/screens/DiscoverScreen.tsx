@@ -139,7 +139,60 @@ export function DiscoverScreen() {
         );
       });
 
-      setSearchResults(filtered);
+      // If no results found, try to create a custom /USDC pair
+      if (filtered.length === 0) {
+        // Parse the query - could be "BTC", "btc/usdc", "BTC/USDC", etc.
+        const cleanQuery = upperQuery.replace(/\s+/g, "");
+        let assetSymbol = cleanQuery;
+
+        // If query contains /, extract the first part and validate it's USDC
+        if (cleanQuery.includes("/")) {
+          const parts = cleanQuery.split("/");
+          assetSymbol = parts[0];
+          const quoteCurrency = parts[1] || "USDC";
+
+          // Only allow USDC as quote currency for custom pairs
+          if (quoteCurrency !== "USDC") {
+            // Don't create a custom pair for non-USDC quotes
+            setSearchResults([]);
+            return;
+          }
+
+          // Create synthetic market for ASSET/USDC
+          const syntheticMarket: Market = {
+            longAssets: [{ asset: assetSymbol, weight: 1 }],
+            shortAssets: [{ asset: "USDC", weight: 1 }],
+            openInterest: "0",
+            volume: "0",
+            ratio: "0",
+            prevRatio: "0",
+            change24h: "0",
+            weightedRatio: "0",
+            weightedPrevRatio: "0",
+            weightedChange24h: "0",
+            netFunding: "0",
+          };
+          setSearchResults([syntheticMarket]);
+        } else {
+          // Create a /USDC pair for the searched asset
+          const syntheticMarket: Market = {
+            longAssets: [{ asset: assetSymbol, weight: 1 }],
+            shortAssets: [{ asset: "USDC", weight: 1 }],
+            openInterest: "0",
+            volume: "0",
+            ratio: "0",
+            prevRatio: "0",
+            change24h: "0",
+            weightedRatio: "0",
+            weightedPrevRatio: "0",
+            weightedChange24h: "0",
+            netFunding: "0",
+          };
+          setSearchResults([syntheticMarket]);
+        }
+      } else {
+        setSearchResults(filtered);
+      }
     } catch (err) {
       console.error("Search failed:", err);
       setSearchResults([]);
@@ -171,7 +224,7 @@ export function DiscoverScreen() {
     const shortAssets = market.shortAssets || [];
 
     const longAsset = longAssets[0]?.asset ?? "UNKNOWN";
-    const shortAsset = shortAssets[0]?.asset ?? "USDT";
+    const shortAsset = shortAssets[0]?.asset ?? "USDC";
     const pair = `${longAsset}/${shortAsset}`;
     const change = parseFloat(market.change24h || "0") * 100;
     const volume = parseFloat(market.volume || "0");
@@ -376,29 +429,52 @@ export function DiscoverScreen() {
             </div>
           ) : (
             <div className="space-y-2">
-              {formattedSearchResults.map((item) => (
-                <div
-                  key={item.pair}
-                  className="flex items-center justify-between bg-card border border-border rounded-xl p-4 tap-scale hover:border-primary transition-colors"
-                >
-                  <div>
-                    <p className="font-bold">{item.pair}</p>
-                    <p className="text-xs text-muted-foreground">
-                      Vol: {item.volume}
-                    </p>
+              {searchResults.map((market, idx) => {
+                const formatted = formatMarket(market);
+                const isCustomPair = parseFloat(market.volume || "0") === 0;
+                return (
+                  <div
+                    key={`${formatted.pair}-${idx}`}
+                    onClick={() => handleMarketClick(market)}
+                    className="flex items-center justify-between bg-card border border-border rounded-xl p-4 tap-scale hover:border-primary transition-colors cursor-pointer"
+                  >
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <p className="font-bold">{formatted.pair}</p>
+                        {isCustomPair && (
+                          <span className="px-2 py-0.5 rounded text-xs font-medium bg-primary/20 text-primary">
+                            Custom
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {isCustomPair
+                          ? "Directional Trade"
+                          : `Vol: ${formatted.volume}`}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      {!isCustomPair && (
+                        <>
+                          <p
+                            className={`font-semibold ${formatted.isPositive ? "text-success" : "text-destructive"}`}
+                          >
+                            {formatted.change}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            Ratio: {formatted.ratio}
+                          </p>
+                        </>
+                      )}
+                      {isCustomPair && (
+                        <p className="text-xs text-muted-foreground">
+                          Tap to trade
+                        </p>
+                      )}
+                    </div>
                   </div>
-                  <div className="text-right">
-                    <p
-                      className={`font-semibold ${item.isPositive ? "text-success" : "text-destructive"}`}
-                    >
-                      {item.change}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      Ratio: {item.ratio}
-                    </p>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -443,42 +519,42 @@ export function DiscoverScreen() {
                 ? topPairs
                 : [
                     {
-                      pair: "BTC/USDT",
+                      pair: "BTC/USDC",
                       change: "+2.1%",
                       isPositive: true,
                       volume: "$12.8B",
                       ratio: "0.0456",
                     },
                     {
-                      pair: "ETH/USDT",
+                      pair: "ETH/USDC",
                       change: "+1.8%",
                       isPositive: true,
                       volume: "$6.2B",
                       ratio: "0.0345",
                     },
                     {
-                      pair: "SOL/USDT",
+                      pair: "SOL/USDC",
                       change: "+5.2%",
                       isPositive: true,
                       volume: "$2.4B",
                       ratio: "0.0234",
                     },
                     {
-                      pair: "HYPE/USDT",
+                      pair: "HYPE/USDC",
                       change: "+8.5%",
                       isPositive: true,
                       volume: "$1.8B",
                       ratio: "0.0123",
                     },
                     {
-                      pair: "AVAX/USDT",
+                      pair: "AVAX/USDC",
                       change: "+3.1%",
                       isPositive: true,
                       volume: "$890M",
                       ratio: "0.0567",
                     },
                     {
-                      pair: "LINK/USDT",
+                      pair: "LINK/USDC",
                       change: "+4.2%",
                       isPositive: true,
                       volume: "$1.1B",
@@ -533,19 +609,19 @@ export function DiscoverScreen() {
                   ? topGainers
                   : [
                       {
-                        pair: "SOL/USDT",
+                        pair: "SOL/USDC",
                         change: "+5.2%",
                         isPositive: true,
                         volume: "$2.4B",
                       },
                       {
-                        pair: "AVAX/USDT",
+                        pair: "AVAX/USDC",
                         change: "+8.1%",
                         isPositive: true,
                         volume: "$890M",
                       },
                       {
-                        pair: "LINK/USDT",
+                        pair: "LINK/USDC",
                         change: "+6.7%",
                         isPositive: true,
                         volume: "$1.1B",
@@ -587,13 +663,13 @@ export function DiscoverScreen() {
                 ? topLosers
                 : [
                     {
-                      pair: "DOGE/USDT",
+                      pair: "DOGE/USDC",
                       change: "-3.2%",
                       isPositive: false,
                       volume: "$1.2B",
                     },
                     {
-                      pair: "SHIB/USDT",
+                      pair: "SHIB/USDC",
                       change: "-5.1%",
                       isPositive: false,
                       volume: "$450M",

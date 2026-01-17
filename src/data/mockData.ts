@@ -31,6 +31,7 @@ export interface Trade {
   comments: number;
   copies: number;
   voiceDuration: string;
+  leverage: number;
 }
 
 export interface Position {
@@ -142,7 +143,7 @@ export const trades: Trade[] = [
     trader: traders[0],
     timestamp: '2h ago',
     thesis: 'Solana narrative heating up with major ecosystem developments. Entry looks solid here with clear support at $95. Targeting $120 by end of month.',
-    pair: 'SOL/USDT',
+    pair: 'SOL/USDC',
     direction: 'LONG',
     entry: '98.45',
     current: '101.67',
@@ -180,7 +181,7 @@ export const trades: Trade[] = [
     trader: traders[2],
     timestamp: '6h ago',
     thesis: 'Whale accumulation detected on AVAX. Multiple wallets moving in. This could run hard once retail catches on.',
-    pair: 'AVAX/USDT',
+    pair: 'AVAX/USDC',
     direction: 'LONG',
     entry: '34.20',
     current: '35.89',
@@ -199,7 +200,7 @@ export const trades: Trade[] = [
     trader: traders[3],
     timestamp: '8h ago',
     thesis: 'JTO looking primed for a breakout. Solana airdrop momentum still strong. High conviction play with 3x potential.',
-    pair: 'JTO/USDT',
+    pair: 'JTO/USDC',
     direction: 'LONG',
     entry: '2.85',
     current: '2.72',
@@ -218,7 +219,7 @@ export const trades: Trade[] = [
     trader: traders[4],
     timestamp: '12h ago',
     thesis: 'BTC consolidating nicely above $42K. Low risk entry with clear invalidation. Perfect R:R setup for a swing trade.',
-    pair: 'BTC/USDT',
+    pair: 'BTC/USDC',
     direction: 'LONG',
     entry: '42,150',
     current: '43,280',
@@ -237,7 +238,7 @@ export const trades: Trade[] = [
     trader: traders[5],
     timestamp: '1d ago',
     thesis: 'PEPE showing signs of life. Meme season incoming? Taking a small position for potential 10x. Pure degen play.',
-    pair: 'PEPE/USDT',
+    pair: 'PEPE/USDC',
     direction: 'LONG',
     entry: '0.00000112',
     current: '0.00000145',
@@ -256,7 +257,7 @@ export const trades: Trade[] = [
     trader: traders[6],
     timestamp: '1d ago',
     thesis: 'ARB accumulation zone. Layer 2 narrative coming back strong. Building position here for Q1 catalyst.',
-    pair: 'ARB/USDT',
+    pair: 'ARB/USDC',
     direction: 'LONG',
     entry: '1.12',
     current: '1.18',
@@ -275,7 +276,7 @@ export const trades: Trade[] = [
     trader: traders[7],
     timestamp: '2d ago',
     thesis: 'LINK breaking out of 6-month range. Oracle narrative + real world assets. This is a multi-week hold.',
-    pair: 'LINK/USDT',
+    pair: 'LINK/USDC',
     direction: 'LONG',
     entry: '14.50',
     current: '15.82',
@@ -294,7 +295,7 @@ export const trades: Trade[] = [
 export const positions: Position[] = [
   {
     id: '1',
-    pair: 'SOL/USDT',
+    pair: 'SOL/USDC',
     direction: 'LONG',
     entry: '98.45',
     current: '101.67',
@@ -305,7 +306,7 @@ export const positions: Position[] = [
   },
   {
     id: '2',
-    pair: 'BTC/USDT',
+    pair: 'BTC/USDC',
     direction: 'LONG',
     entry: '42,150',
     current: '43,280',
@@ -327,7 +328,7 @@ export const positions: Position[] = [
   },
   {
     id: '4',
-    pair: 'AVAX/USDT',
+    pair: 'AVAX/USDC',
     direction: 'LONG',
     entry: '34.20',
     current: '33.45',
@@ -339,11 +340,11 @@ export const positions: Position[] = [
 ];
 
 export const trendingPairs = [
-  { pair: 'SOL/USDT', change: '+5.2%', volume: '$2.4B' },
-  { pair: 'BTC/USDT', change: '+1.8%', volume: '$12.8B' },
-  { pair: 'ETH/USDT', change: '+2.4%', volume: '$6.2B' },
-  { pair: 'AVAX/USDT', change: '+8.1%', volume: '$890M' },
-  { pair: 'LINK/USDT', change: '+6.7%', volume: '$1.1B' },
+  { pair: 'SOL/USDC', change: '+5.2%', volume: '$2.4B' },
+  { pair: 'BTC/USDC', change: '+1.8%', volume: '$12.8B' },
+  { pair: 'ETH/USDC', change: '+2.4%', volume: '$6.2B' },
+  { pair: 'AVAX/USDC', change: '+8.1%', volume: '$890M' },
+  { pair: 'LINK/USDC', change: '+6.7%', volume: '$1.1B' },
 ];
 
 export const hotPairs = ['SOL', 'AVAX', 'JTO', 'LINK', 'ARB', 'OP', 'INJ', 'TIA'];

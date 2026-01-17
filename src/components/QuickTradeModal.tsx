@@ -1,16 +1,27 @@
-// Quick Trade Modal - Smart Stateful Button (Enable -> Trade)
+// Quick Trade Modal - Side-Split Aware Min Size Logic
 import { useState, useEffect } from "react";
-import { X, Zap, Loader2, Wallet, Info, ShieldCheck } from "lucide-react";
-import type { Market } from "@/types/pear";
+import {
+  X,
+  Zap,
+  Loader2,
+  Wallet,
+  Info,
+  ShieldCheck,
+  AlertCircle,
+  TrendingUp,
+  TrendingDown,
+} from "lucide-react";
+import type { Market, TPSLType } from "@/types/pear";
 import { usePearAuthContext } from "@/contexts/PearAuthContext";
 import { pearClient } from "@/lib/pearClient";
-import { hyperliquidClient } from "@/lib/hyperliquidClient";
+import { hyperliquidClient, type AssetMeta } from "@/lib/hyperliquidClient";
 import { useAccount, useSignTypedData } from "wagmi";
 import { useToast } from "@/hooks/use-toast";
 
 const PEAR_BUILDER_ADDRESS = "0xA47D4d99191db54A4829cdf3de2417E527c3b042";
 const HYPERLIQUID_API_URL = "https://api.hyperliquid.xyz/exchange";
 const HYPERLIQUID_CHAIN_ID = 42161;
+const LEG_MIN_NOTIONAL = 10;
 
 interface QuickTradeModalProps {
   market: Market | null;
@@ -34,36 +45,134 @@ export function QuickTradeModal({
   const [isEnabling, setIsEnabling] = useState(false);
   const [availableBalance, setAvailableBalance] = useState<number>(0);
 
-  // State to track if trading is enabled (Builder approved)
-  // Default to false to be safe, or check?
-  // We'll set to false initially, then check.
   const [isTradingEnabled, setIsTradingEnabled] = useState(false);
   const [isCheckingStatus, setIsCheckingStatus] = useState(true);
+
+  // Min Notional Size
+  const [minNotionalReq, setMinNotionalReq] =
+    useState<number>(LEG_MIN_NOTIONAL);
+  const [meta, setMeta] = useState<AssetMeta[]>([]);
+  const [prices, setPrices] = useState<Record<string, number>>({});
+
+  // TP/SL State
+  const [tpEnabled, setTpEnabled] = useState(false);
+  const [slEnabled, setSlEnabled] = useState(false);
+  const [tpType, setTpType] = useState<TPSLType>("PERCENTAGE");
+  const [slType, setSlType] = useState<TPSLType>("PERCENTAGE");
+  const [tpValue, setTpValue] = useState("");
+  const [slValue, setSlValue] = useState("");
 
   // Reset state on open
   useEffect(() => {
     if (isOpen && address) {
       setAmount("");
       setLeverage(1);
+      setTpEnabled(false);
+      setSlEnabled(false);
+      setTpValue("");
+      setSlValue("");
+      setTpType("PERCENTAGE");
+      setSlType("PERCENTAGE");
       fetchBalance();
       checkTradingStatus();
+      fetchMarketData();
     }
   }, [isOpen, address]);
+
+  useEffect(() => {
+    if (!market || meta.length === 0 || Object.keys(prices).length === 0)
+      return;
+    calculateMinNotional();
+  }, [market, meta, prices]);
+
+  const isStable = (asset: string) =>
+    ["USDC", "USDT", "DAI"].includes(asset?.toUpperCase());
+
+  const calculateMinNotional = () => {
+    if (!market) return;
+
+    const longs = market.longAssets?.filter((a) => !isStable(a.asset)) || [];
+    const shorts = market.shortAssets?.filter((a) => !isStable(a.asset)) || [];
+
+    const hasLongs = longs.length > 0;
+    const hasShorts = shorts.length > 0;
+
+    // If we have both sides (e.g. BTC/ETH), capital is split 50/50.
+    // If one side (e.g. BTC/USDC), capital is 100% on active side.
+    const sideFactor = hasLongs && hasShorts ? 0.5 : 1.0;
+
+    let globalRequiredMin = 0;
+
+    const processSide = (assets: { asset: string; weight?: number }[]) => {
+      if (!assets || assets.length === 0) return;
+      const totalRawWeight = assets.reduce(
+        (sum, a) => sum + (a.weight || 0),
+        0,
+      );
+
+      assets.forEach((assetItem) => {
+        if (isStable(assetItem.asset)) return; // Skip USDC checks
+
+        const assetMeta = meta.find((m) => m.name === assetItem.asset);
+        const price = prices[assetItem.asset];
+
+        if (assetMeta && price) {
+          // 1. Technical Min
+          const minUnitSize = Math.pow(10, -assetMeta.szDecimals);
+          const minTechnicalNotional = minUnitSize * price;
+
+          // 2. Protocol Min ($10 per leg)
+          const minLegNotional = Math.max(
+            minTechnicalNotional,
+            LEG_MIN_NOTIONAL,
+          );
+
+          // 3. Normalized Weight within Side
+          let normalizedWeightInSide = 1;
+          if (totalRawWeight > 0) {
+            normalizedWeightInSide = (assetItem.weight || 0) / totalRawWeight;
+          } else {
+            normalizedWeightInSide = 1 / assets.length;
+          }
+
+          // 4. Effective Global Weight (Side Factor * InSide Weight)
+          // e.g. 0.5 * 1.0 = 0.5 (for Pair Trade leg)
+          const effectiveGlobalWeight = normalizedWeightInSide * sideFactor;
+
+          if (effectiveGlobalWeight > 0) {
+            const reqTotal = minLegNotional / effectiveGlobalWeight;
+            if (reqTotal > globalRequiredMin) globalRequiredMin = reqTotal;
+          }
+        }
+      });
+    };
+
+    processSide(longs);
+    processSide(shorts);
+
+    setMinNotionalReq(globalRequiredMin);
+  };
+
+  const fetchMarketData = async () => {
+    const [m, p] = await Promise.all([
+      hyperliquidClient.getMeta(),
+      hyperliquidClient.getAllMids(),
+    ]);
+    setMeta(m);
+    setPrices(p);
+  };
 
   const checkTradingStatus = async () => {
     if (!address) return;
     setIsCheckingStatus(true);
     try {
-      // Check Builder Fee Approval
       const fee = await hyperliquidClient.getMaxBuilderFee(
         address,
         PEAR_BUILDER_ADDRESS,
       );
-      // If fee > 0, we assume enabled.
       setIsTradingEnabled(fee > 0);
     } catch (e) {
       console.error("Failed to check status", e);
-      // Default to false if check fails, forcing user to Enable
       setIsTradingEnabled(false);
     } finally {
       setIsCheckingStatus(false);
@@ -93,8 +202,6 @@ export function QuickTradeModal({
         verifyingContract:
           "0x0000000000000000000000000000000000000000" as `0x${string}`,
       };
-
-      // 1. Approve Agent
       const agentTypes = {
         "HyperliquidTransaction:ApproveAgent": [
           { name: "hyperliquidChain", type: "string" },
@@ -103,14 +210,12 @@ export function QuickTradeModal({
           { name: "nonce", type: "uint64" },
         ],
       };
-
       const agentMessage = {
         hyperliquidChain: "Mainnet",
         agentAddress: agentWallet as `0x${string}`,
         agentName: "TradeTok",
         nonce: BigInt(now),
       };
-
       const agentSignature = await signTypedDataAsync({
         account: address as `0x${string}`,
         domain,
@@ -118,7 +223,6 @@ export function QuickTradeModal({
         primaryType: "HyperliquidTransaction:ApproveAgent",
         message: agentMessage,
       });
-
       const agentPayload = {
         action: {
           type: "approveAgent",
@@ -138,16 +242,11 @@ export function QuickTradeModal({
               : parseInt(agentSignature.slice(130, 132), 16) + 27,
         },
       };
-
-      const agentRes = await fetch(HYPERLIQUID_API_URL, {
+      await fetch(HYPERLIQUID_API_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(agentPayload),
       });
-
-      if (!agentRes.ok) throw new Error("Agent Approval Failed");
-
-      // 2. Approve Builder
       const builderTypes = {
         "HyperliquidTransaction:ApproveBuilderFee": [
           { name: "hyperliquidChain", type: "string" },
@@ -156,14 +255,12 @@ export function QuickTradeModal({
           { name: "nonce", type: "uint64" },
         ],
       };
-
       const builderMessage = {
         hyperliquidChain: "Mainnet",
         maxFeeRate: "0.01%",
         builder: PEAR_BUILDER_ADDRESS as `0x${string}`,
         nonce: BigInt(now + 1),
       };
-
       const builderSignature = await signTypedDataAsync({
         account: address as `0x${string}`,
         domain,
@@ -171,7 +268,6 @@ export function QuickTradeModal({
         primaryType: "HyperliquidTransaction:ApproveBuilderFee",
         message: builderMessage,
       });
-
       const builderPayload = {
         action: {
           type: "approveBuilderFee",
@@ -191,15 +287,12 @@ export function QuickTradeModal({
               : parseInt(builderSignature.slice(130, 132), 16) + 27,
         },
       };
-
       const builderRes = await fetch(HYPERLIQUID_API_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(builderPayload),
       });
-
       if (!builderRes.ok) throw new Error("Builder Approval Failed");
-
       toast({
         title: "Trading Enabled!",
         description: "You can now place your trade.",
@@ -208,9 +301,9 @@ export function QuickTradeModal({
     } catch (err) {
       console.error("Enable Trading Failed", err);
       toast({
+        variant: "destructive",
         title: "Activation Failed",
         description: err instanceof Error ? err.message : "Unknown error",
-        variant: "destructive",
       });
     } finally {
       setIsEnabling(false);
@@ -221,10 +314,33 @@ export function QuickTradeModal({
     if (!isAuthenticated || !agentWallet) return;
     if (!amount || parseFloat(amount) <= 0) return;
 
+    // Check Margin against Min Notional / Leverage
+    const marginAmount = parseFloat(amount);
+    const minMarginReq = minNotionalReq / leverage;
+
+    // Allow small float error
+    if (marginAmount < minMarginReq - 0.01) {
+      toast({
+        title: "Invalid Amount",
+        description: `Minimum margin for ${leverage}x is $${minMarginReq.toFixed(2)}`,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Check if user has sufficient balance
+    if (marginAmount > availableBalance) {
+      toast({
+        title: "Insufficient Balance",
+        description: `You have $${availableBalance.toFixed(2)} available. Need $${marginAmount.toFixed(2)}.`,
+        variant: "destructive",
+      });
+      return;
+    }
+
     setIsLoading(true);
 
     try {
-      // 1. Prepare & Normalize Weights
       const prepareAssets = (assets: { asset: string; weight?: number }[]) => {
         if (!assets || assets.length === 0) return [];
         const totalWeight = assets.reduce((sum, a) => sum + (a.weight || 0), 0);
@@ -241,19 +357,32 @@ export function QuickTradeModal({
       if (cleanLongs.length === 0 && cleanShorts.length === 0)
         throw new Error("Invalid market data");
 
-      // 2. Construct Trade Request
+      // Build TP/SL thresholds
+      const takeProfit =
+        tpEnabled && tpValue && parseFloat(tpValue) > 0
+          ? { type: tpType, value: parseFloat(tpValue) }
+          : undefined;
+
+      const stopLoss =
+        slEnabled && slValue && parseFloat(slValue) > 0
+          ? { type: slType, value: parseFloat(slValue) }
+          : undefined;
+
+      // Send Notional Value (Margin * Leverage)
       await pearClient.createPosition({
         executionType: "MARKET",
-        usdValue: parseFloat(amount),
+        usdValue: marginAmount * leverage,
         leverage: leverage,
         longAssets: cleanLongs,
         shortAssets: cleanShorts,
         slippage: 0.1,
+        takeProfit,
+        stopLoss,
       });
 
       toast({
         title: "Trade Executed!",
-        description: `Successfully opened position.`,
+        description: `Successfully opened position${takeProfit || stopLoss ? " with risk parameters" : ""}.`,
         variant: "default",
       });
 
@@ -284,6 +413,8 @@ export function QuickTradeModal({
       setAmount((availableBalance * percent).toFixed(2));
     }
   };
+
+  const displayMinReq = minNotionalReq / leverage;
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center">
@@ -354,6 +485,15 @@ export function QuickTradeModal({
               </button>
             </div>
 
+            {/* Min Size Req Indicator */}
+            <div className="flex items-center gap-1.5 mt-2 text-xs">
+              <AlertCircle className="w-3.5 h-3.5 text-muted-foreground" />
+              <span className="text-muted-foreground">Min Required: </span>
+              <span className="font-semibold text-primary">
+                ${displayMinReq.toFixed(2)}
+              </span>
+            </div>
+
             <div className="flex gap-2 mt-2">
               {[0.25, 0.5, 0.75].map((pct) => (
                 <button
@@ -395,6 +535,149 @@ export function QuickTradeModal({
             </div>
           </div>
 
+          {/* Take Profit / Stop Loss */}
+          <div className="space-y-4">
+            {/* Take Profit */}
+            <div className="border border-border/50 rounded-xl p-4 bg-secondary/30">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <TrendingUp className="w-4 h-4 text-success" />
+                  <label className="text-sm font-medium">Take Profit</label>
+                </div>
+                <button
+                  onClick={() => setTpEnabled(!tpEnabled)}
+                  className={`relative w-11 h-6 rounded-full transition-colors ${
+                    tpEnabled ? "bg-success" : "bg-muted"
+                  }`}
+                >
+                  <span
+                    className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform ${
+                      tpEnabled ? "translate-x-5" : ""
+                    }`}
+                  />
+                </button>
+              </div>
+
+              {tpEnabled && (
+                <div className="space-y-3">
+                  <div className="flex gap-2">
+                    {(["PERCENTAGE", "DOLLAR", "POSITION_VALUE"] as const).map(
+                      (type) => (
+                        <button
+                          key={type}
+                          onClick={() => setTpType(type)}
+                          className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-all tap-scale ${
+                            tpType === type
+                              ? "bg-success text-white"
+                              : "bg-secondary/50 text-muted-foreground hover:bg-secondary"
+                          }`}
+                        >
+                          {type === "PERCENTAGE"
+                            ? "%"
+                            : type === "DOLLAR"
+                              ? "$"
+                              : "PV"}
+                        </button>
+                      ),
+                    )}
+                  </div>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      value={tpValue}
+                      onChange={(e) => setTpValue(e.target.value)}
+                      placeholder={
+                        tpType === "PERCENTAGE"
+                          ? "e.g. 20 (for 20%)"
+                          : tpType === "DOLLAR"
+                            ? "e.g. 100"
+                            : "e.g. 1200"
+                      }
+                      className="w-full px-3 py-2 rounded-lg bg-background text-sm focus:outline-none focus:ring-2 focus:ring-success/50 transition-all"
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+                      {tpType === "PERCENTAGE"
+                        ? "%"
+                        : tpType === "DOLLAR"
+                          ? "USD"
+                          : "USD"}
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Stop Loss */}
+            <div className="border border-border/50 rounded-xl p-4 bg-secondary/30">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <TrendingDown className="w-4 h-4 text-destructive" />
+                  <label className="text-sm font-medium">Stop Loss</label>
+                </div>
+                <button
+                  onClick={() => setSlEnabled(!slEnabled)}
+                  className={`relative w-11 h-6 rounded-full transition-colors ${
+                    slEnabled ? "bg-destructive" : "bg-muted"
+                  }`}
+                >
+                  <span
+                    className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform ${
+                      slEnabled ? "translate-x-5" : ""
+                    }`}
+                  />
+                </button>
+              </div>
+
+              {slEnabled && (
+                <div className="space-y-3">
+                  <div className="flex gap-2">
+                    {(["PERCENTAGE", "DOLLAR", "POSITION_VALUE"] as const).map(
+                      (type) => (
+                        <button
+                          key={type}
+                          onClick={() => setSlType(type)}
+                          className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-all tap-scale ${
+                            slType === type
+                              ? "bg-destructive text-white"
+                              : "bg-secondary/50 text-muted-foreground hover:bg-secondary"
+                          }`}
+                        >
+                          {type === "PERCENTAGE"
+                            ? "%"
+                            : type === "DOLLAR"
+                              ? "$"
+                              : "PV"}
+                        </button>
+                      ),
+                    )}
+                  </div>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      value={slValue}
+                      onChange={(e) => setSlValue(e.target.value)}
+                      placeholder={
+                        slType === "PERCENTAGE"
+                          ? "e.g. 10 (for 10%)"
+                          : slType === "DOLLAR"
+                            ? "e.g. 50"
+                            : "e.g. 800"
+                      }
+                      className="w-full px-3 py-2 rounded-lg bg-background text-sm focus:outline-none focus:ring-2 focus:ring-destructive/50 transition-all"
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+                      {slType === "PERCENTAGE"
+                        ? "%"
+                        : slType === "DOLLAR"
+                          ? "USD"
+                          : "USD"}
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
           {/* Smart Button */}
           {!isAuthenticated ? (
             <button
@@ -426,7 +709,12 @@ export function QuickTradeModal({
           ) : (
             <button
               onClick={handleExecute}
-              disabled={isLoading || !amount || parseFloat(amount) <= 0}
+              disabled={
+                isLoading ||
+                !amount ||
+                parseFloat(amount) < displayMinReq - 0.01 ||
+                parseFloat(amount) > availableBalance
+              }
               className="w-full py-4 rounded-xl gradient-primary text-primary-foreground font-bold text-lg tap-scale shadow-xl shadow-primary/20 disabled:opacity-50 disabled:shadow-none flex items-center justify-center gap-2"
             >
               {isLoading ? (

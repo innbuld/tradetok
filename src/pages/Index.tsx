@@ -50,16 +50,16 @@ const Index = () => {
   return (
     <div className="min-h-screen bg-background text-foreground max-w-mobile mx-auto relative overflow-hidden">
       {/* Main Content */}
-      <main className="h-screen pb-20 overflow-y-auto">
-        {renderScreen()}
-      </main>
+      <main className="h-screen pb-20 overflow-y-auto">{renderScreen()}</main>
 
       {/* Voice Button */}
+      {/* Voice Button - Disabled for now
       <VoiceButton
         onPress={handleVoiceStart}
         onRelease={handleVoiceEnd}
         isActive={isVoiceActive}
       />
+      */}
 
       {/* Bottom Navigation */}
       <BottomNav activeTab={activeTab} onTabChange={setActiveTab} />

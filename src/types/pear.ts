@@ -294,18 +294,51 @@ export interface OpenOrder {
 }
 
 export interface TradeHistoryItem {
-  tradeId: string;
+  tradeHistoryId?: string;
+  tradeId?: string;
   positionId: string;
-  executionType: ExecutionType;
-  longAssets: PositionAsset[];
-  shortAssets: PositionAsset[];
-  entryRatio: number;
+  executionType?: ExecutionType;
+  address?: string;
+  // Closed assets (actual API response)
+  closedLongAssets?: Array<{
+    coin: string;
+    entryPrice: number;
+    entryWeight: number;
+    limitPrice?: number;
+    leverage: number;
+    size: number;
+    externalFeePaid?: number;
+    builderFeePaid?: number;
+    realizedPnl?: number;
+  }>;
+  closedShortAssets?: Array<{
+    coin: string;
+    entryPrice: number;
+    entryWeight: number;
+    limitPrice?: number;
+    leverage: number;
+    size: number;
+    externalFeePaid?: number;
+    builderFeePaid?: number;
+    realizedPnl?: number;
+  }>;
+  // Legacy fields (for backwards compatibility)
+  longAssets?: PositionAsset[];
+  shortAssets?: PositionAsset[];
+  positionLongAssets?: string[];
+  positionShortAssets?: string[];
+  entryRatio?: number;
   exitRatio?: number;
   realizedPnl?: number;
   realizedPnlPercentage?: number;
-  status: "OPEN" | "CLOSED" | "LIQUIDATED";
-  openedAt: string;
+  totalValue?: number;
+  totalEntryValue?: number;
+  externalFeePaid?: number;
+  builderFeePaid?: number;
+  status?: "OPEN" | "CLOSED" | "LIQUIDATED";
+  openedAt?: string;
   closedAt?: string;
+  createdAt?: string;
 }
 
 // ============================================
