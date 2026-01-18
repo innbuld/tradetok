@@ -307,7 +307,7 @@ export function QuickTradeModal({
       };
       const builderMessage = {
         hyperliquidChain: "Mainnet",
-        maxFeeRate: "0.01%",
+        maxFeeRate: "0.06%",
         builder: PEAR_BUILDER_ADDRESS as `0x${string}`,
         nonce: BigInt(now + 1),
       };
@@ -323,7 +323,7 @@ export function QuickTradeModal({
           type: "approveBuilderFee",
           hyperliquidChain: "Mainnet",
           signatureChainId: "0xa4b1",
-          maxFeeRate: "0.01%",
+          maxFeeRate: "0.06%",
           builder: PEAR_BUILDER_ADDRESS,
           nonce: now + 1,
         },
