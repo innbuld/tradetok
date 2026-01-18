@@ -64,82 +64,91 @@ export function AgentWalletSetupModal({
     chainId: HYPERLIQUID_CHAIN_ID,
   });
 
-  // Check Hyperliquid balance on mount
+  // Determine initial step based on state
   useEffect(() => {
-    const checkHyperliquidBalance = async () => {
+    const determineStep = async () => {
       if (!isOpen || !address || !isConnected) return;
 
-      try {
-        // Dynamically import to avoid circular dependency
-        const { hyperliquidClient } = await import("@/lib/hyperliquidClient");
-        const portfolio = await hyperliquidClient.getPortfolio(address);
-        const balance = portfolio.accountValue || 0;
-        setHlBalance(balance);
-        console.log("[AgentSetup] Hyperliquid balance:", balance);
+      // If agent wallet already exists, we can skip CREATE
+      if (agentWallet) {
+        setCreatedAddress(agentWallet);
 
-        // If user has Hyperliquid balance, they've deposited - skip to CREATE/APPROVE
-        if (balance > 0) {
-          if (agentWallet) {
-            setCreatedAddress(agentWallet);
+        // Check if user has Hyperliquid balance
+        try {
+          const { hyperliquidClient } = await import("@/lib/hyperliquidClient");
+          const portfolio = await hyperliquidClient.getPortfolio(address);
+          const balance = portfolio.accountValue || 0;
+          setHlBalance(balance);
+          console.log(
+            "[AgentSetup] HL balance:",
+            balance,
+            "Agent wallet:",
+            agentWallet,
+          );
+
+          if (balance > 0) {
+            // Has deposit, go to approve
             setStep("APPROVE");
           } else {
-            setStep("CREATE");
-          }
-        } else {
-          // No Hyperliquid balance, check Arbitrum wallet for USDC
-          if (balanceData) {
-            const arbBalance = parseFloat(balanceData.formatted);
-            if (arbBalance < 6) {
-              setStep("INSUFFICIENT_FUNDS");
-            } else {
-              setStep("DEPOSIT_NEEDED");
-            }
-          } else {
+            // No deposit yet, need to deposit first
             setStep("DEPOSIT_NEEDED");
           }
-        }
-      } catch (err) {
-        console.error("[AgentSetup] Error checking HL balance:", err);
-        // Fallback: assume no deposit, check Arbitrum balance
-        if (balanceData) {
-          const arbBalance = parseFloat(balanceData.formatted);
-          if (arbBalance < 6) {
-            setStep("INSUFFICIENT_FUNDS");
-          } else {
-            setStep("DEPOSIT_NEEDED");
-          }
-        } else {
+        } catch (err) {
+          console.error("[AgentSetup] Error checking HL balance:", err);
           setStep("DEPOSIT_NEEDED");
         }
+      } else {
+        // No agent wallet yet, need to create one first
+        setStep("CREATE");
       }
     };
 
     if (isOpen && step === "CHECKING") {
-      checkHyperliquidBalance();
+      determineStep();
     }
-  }, [isOpen, address, isConnected, agentWallet, balanceData, step]);
+  }, [isOpen, address, isConnected, agentWallet, step]);
 
   // Reset to CHECKING when modal opens
   useEffect(() => {
     if (isOpen) {
       setStep("CHECKING");
       setError(null);
+      setCreatedAddress(null);
     }
   }, [isOpen]);
 
+  // After CREATE, check if deposit is needed
   const handleCreateWallet = async () => {
     setIsLoading(true);
     setError(null);
     try {
       const walletAddress = await setupAgentWallet();
       setCreatedAddress(walletAddress);
-      setStep("APPROVE");
+
+      // Now check if user has Hyperliquid balance
+      try {
+        const { hyperliquidClient } = await import("@/lib/hyperliquidClient");
+        const portfolio = await hyperliquidClient.getPortfolio(address!);
+        const balance = portfolio.accountValue || 0;
+        setHlBalance(balance);
+
+        if (balance > 0) {
+          // Already has deposit, go to approve
+          setStep("APPROVE");
+        } else {
+          // Need to deposit first
+          setStep("DEPOSIT_NEEDED");
+        }
+      } catch {
+        // Assume no deposit
+        setStep("DEPOSIT_NEEDED");
+      }
     } catch (err) {
       console.error("Failed to create agent wallet:", err);
       // If fails, check if we already have one
       if (agentWallet) {
         setCreatedAddress(agentWallet);
-        setStep("APPROVE");
+        setStep("DEPOSIT_NEEDED");
         return;
       }
       setError("Failed to create agent wallet. Please try again.");
@@ -400,15 +409,18 @@ export function AgentWalletSetupModal({
                   variant="default"
                   className="w-full"
                 >
+                  <Coins className="w-4 h-4 mr-2" />
                   Deposit Funds
                 </Button>
-                <Button
-                  onClick={() => setStep("APPROVE")}
-                  variant="outline"
-                  className="w-full"
-                >
-                  Back to Approval
-                </Button>
+                {createdAddress && (
+                  <Button
+                    onClick={() => setStep("APPROVE")}
+                    variant="outline"
+                    className="w-full"
+                  >
+                    I've Already Deposited → Approve Wallet
+                  </Button>
+                )}
               </>
             )}
 
