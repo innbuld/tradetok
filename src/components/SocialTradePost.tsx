@@ -110,6 +110,10 @@ export function SocialTradePost({
   );
   const [isCheckingStatus, setIsCheckingStatus] = useState(false);
 
+  // Real-time price state
+  const [liveEntryPrice, setLiveEntryPrice] = useState<number | null>(null);
+  const [liveCurrentPrice, setLiveCurrentPrice] = useState<number | null>(null);
+
   const isProfitable = post.pnl_percentage >= 0;
   const isOwnPost = currentUserId === post.creator_id;
 
@@ -171,14 +175,65 @@ export function SocialTradePost({
         );
 
         // Check if ALL active assets have open positions
-        const hasOpenPosition = activeAssets.every((asset) =>
-          positions.some(
+        const positionCoins = positions.map((p) => p.coin.toUpperCase());
+
+        console.log(`[SocialTradePost] Checking status for ${post.pair}`, {
+          activeAssets,
+          openPositions: positionCoins,
+          creator: creatorWallet,
+        });
+
+        const hasOpenPosition = activeAssets.every((asset) => {
+          const isOpen = positions.some(
             (pos) =>
-              pos.coin.toUpperCase() === asset.toUpperCase() && pos.size !== 0,
-          ),
+              pos.coin.toUpperCase() === asset.toUpperCase() &&
+              Math.abs(pos.size) > 0, // Ensure size is not effectively zero
+          );
+
+          if (!isOpen) {
+            console.log(
+              `[SocialTradePost] Asset ${asset} not found in open positions`,
+              positionCoins,
+            );
+          }
+          return isOpen;
+        });
+
+        console.log(
+          `[SocialTradePost] Result for ${post.pair}: ${hasOpenPosition ? "OPEN" : "CLOSED"}`,
         );
 
         setIsPositionOpen(hasOpenPosition);
+
+        // Update live prices for single-asset trades
+        if (activeAssets.length === 1) {
+          const asset = activeAssets[0];
+          const position = positions.find(
+            (p) => p.coin.toUpperCase() === asset.toUpperCase(),
+          );
+
+          // 1. Get Live Entry Price
+          if (position) {
+            // Updated to use correct property 'entryPrice' from HyperliquidPosition interface
+            const entry = position.entryPrice;
+            if (!isNaN(entry) && entry > 0) {
+              setLiveEntryPrice(entry);
+            }
+          }
+
+          // 2. Get Live Current Price
+          // We can fetch this even if position is closed to show current market price
+          try {
+            const allMids = await hyperliquidClient.getAllMids();
+            // Handle loose matching if exact match fails? usually exact match works for Hyperliquid
+            const current = allMids[asset] || allMids[asset.toUpperCase()];
+            if (current) {
+              setLiveCurrentPrice(current);
+            }
+          } catch (e) {
+            console.error("Failed to fetch live price", e);
+          }
+        }
 
         // If position is closed but DB says open, update the DB
         if (!hasOpenPosition && post.is_open) {
@@ -363,7 +418,7 @@ export function SocialTradePost({
           <div className="bg-secondary/30 rounded-lg p-2.5">
             <p className="text-xs text-muted-foreground mb-1">Entry Price</p>
             <p className="font-semibold text-lg">
-              ${formatPrice(post.entry_price)}
+              ${formatPrice(liveEntryPrice ?? post.entry_price)}
             </p>
           </div>
           <div className="bg-secondary/30 rounded-lg p-2.5">
@@ -371,7 +426,7 @@ export function SocialTradePost({
             <p
               className={`font-semibold text-lg ${isProfitable ? "text-success" : "text-destructive"}`}
             >
-              ${formatPrice(post.current_price)}
+              ${formatPrice(liveCurrentPrice ?? post.current_price)}
             </p>
           </div>
           <div className="bg-secondary/30 rounded-lg p-2.5">
