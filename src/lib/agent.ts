@@ -326,8 +326,10 @@ class TradingAgent {
     }
 
     // Determine the amount to use (user's balance or requested)
-    let amount = requestedAmount || Math.min(this.defaultAmount, userBalance);
-    if (amount > userBalance) { amount = userBalance; }
+    // BUFFER: Use slightly less than full balance (reserve 0.1 USDC) to avoid dust/rounding errors
+    const safeBalance = Math.max(0, userBalance - 0.1);
+    let amount = requestedAmount || Math.min(this.defaultAmount, safeBalance);
+    if (amount > safeBalance) { amount = safeBalance; }
 
     // Calculate minimum margin needed based on EFFECTIVE leverage
     // For pair trade, effective leverage might be lower than "maxLeverage" variable
