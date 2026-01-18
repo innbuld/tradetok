@@ -44,43 +44,88 @@ export function AgentWalletSetupModal({
   const { open } = useWeb3Modal();
 
   const [step, setStep] = useState<
-    "CREATE" | "APPROVE" | "SUCCESS" | "DEPOSIT_NEEDED" | "INSUFFICIENT_FUNDS"
-  >("CREATE");
+    | "CREATE"
+    | "APPROVE"
+    | "SUCCESS"
+    | "DEPOSIT_NEEDED"
+    | "INSUFFICIENT_FUNDS"
+    | "CHECKING"
+  >("CHECKING");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [createdAddress, setCreatedAddress] = useState<string | null>(null);
   const [showDepositModal, setShowDepositModal] = useState(false);
+  const [hlBalance, setHlBalance] = useState<number | null>(null);
 
-  // CHECK USDC BALANCE LOGIC
+  // CHECK USDC BALANCE LOGIC (for Arbitrum wallet)
   const { data: balanceData, refetch: refetchBalance } = useBalance({
     address,
     token: USDC_ADDRESS,
     chainId: HYPERLIQUID_CHAIN_ID,
   });
 
-  // Auto-skip to APPROVE if agent wallet already exists
+  // Check Hyperliquid balance on mount
   useEffect(() => {
-    if (isOpen && agentWallet && step === "CREATE") {
-      console.log(
-        "Agent wallet exists, skipping to APPROVE step:",
-        agentWallet,
-      );
-      setCreatedAddress(agentWallet);
-      setStep("APPROVE");
-    } else if (
-      isOpen &&
-      !agentWallet &&
-      step === "CREATE" &&
-      isConnected &&
-      balanceData
-    ) {
-      // Check Balance for NEW users
-      const balance = parseFloat(balanceData.formatted);
-      if (balance < 6) {
-        setStep("INSUFFICIENT_FUNDS");
+    const checkHyperliquidBalance = async () => {
+      if (!isOpen || !address || !isConnected) return;
+
+      try {
+        // Dynamically import to avoid circular dependency
+        const { hyperliquidClient } = await import("@/lib/hyperliquidClient");
+        const portfolio = await hyperliquidClient.getPortfolio(address);
+        const balance = portfolio.accountValue || 0;
+        setHlBalance(balance);
+        console.log("[AgentSetup] Hyperliquid balance:", balance);
+
+        // If user has Hyperliquid balance, they've deposited - skip to CREATE/APPROVE
+        if (balance > 0) {
+          if (agentWallet) {
+            setCreatedAddress(agentWallet);
+            setStep("APPROVE");
+          } else {
+            setStep("CREATE");
+          }
+        } else {
+          // No Hyperliquid balance, check Arbitrum wallet for USDC
+          if (balanceData) {
+            const arbBalance = parseFloat(balanceData.formatted);
+            if (arbBalance < 6) {
+              setStep("INSUFFICIENT_FUNDS");
+            } else {
+              setStep("DEPOSIT_NEEDED");
+            }
+          } else {
+            setStep("DEPOSIT_NEEDED");
+          }
+        }
+      } catch (err) {
+        console.error("[AgentSetup] Error checking HL balance:", err);
+        // Fallback: assume no deposit, check Arbitrum balance
+        if (balanceData) {
+          const arbBalance = parseFloat(balanceData.formatted);
+          if (arbBalance < 6) {
+            setStep("INSUFFICIENT_FUNDS");
+          } else {
+            setStep("DEPOSIT_NEEDED");
+          }
+        } else {
+          setStep("DEPOSIT_NEEDED");
+        }
       }
+    };
+
+    if (isOpen && step === "CHECKING") {
+      checkHyperliquidBalance();
     }
-  }, [isOpen, agentWallet, step, isConnected, balanceData]);
+  }, [isOpen, address, isConnected, agentWallet, balanceData, step]);
+
+  // Reset to CHECKING when modal opens
+  useEffect(() => {
+    if (isOpen) {
+      setStep("CHECKING");
+      setError(null);
+    }
+  }, [isOpen]);
 
   const handleCreateWallet = async () => {
     setIsLoading(true);
@@ -223,6 +268,18 @@ export function AgentWalletSetupModal({
           </DialogHeader>
 
           <div className="py-6 flex flex-col items-center justify-center text-center space-y-4">
+            {step === "CHECKING" && (
+              <>
+                <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mb-2">
+                  <Loader2 className="w-8 h-8 text-primary animate-spin" />
+                </div>
+                <h3 className="font-semibold text-lg">Checking Account...</h3>
+                <p className="text-sm text-muted-foreground">
+                  Verifying your Hyperliquid account status.
+                </p>
+              </>
+            )}
+
             {step === "CREATE" && (
               <>
                 <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mb-2">
