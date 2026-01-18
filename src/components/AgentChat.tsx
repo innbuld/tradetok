@@ -2,7 +2,9 @@
 // A gorgeous chat interface for intent-based trading with Gemini LLM
 
 import { useState, useRef, useEffect } from "react";
-import { useAccount } from "wagmi";
+import { useAccount, useSignTypedData } from "wagmi";
+import { useToast } from "@/hooks/use-toast";
+import { hyperliquidClient } from "@/lib/hyperliquidClient";
 import {
   Bot,
   Send,
@@ -17,6 +19,7 @@ import {
   ChevronDown,
   ChevronUp,
   AlertTriangle,
+  AlertCircle,
   Brain,
   Wallet,
   DollarSign,
@@ -38,6 +41,10 @@ import {
 } from "@/lib/agent";
 import { Button } from "@/components/ui/button";
 import { AgentWalletSetupModal } from "@/components/AgentWalletSetupModal";
+
+const PEAR_BUILDER_ADDRESS = "0xA47D4d99191db54A4829cdf3de2417E527c3b042";
+const HYPERLIQUID_API_URL = "https://api.hyperliquid.xyz/exchange";
+const HYPERLIQUID_CHAIN_ID = 42161;
 
 interface ChatMessage {
   id: string;
@@ -85,6 +92,13 @@ export function AgentChat({
   const [showAgentSetup, setShowAgentSetup] = useState(false);
   const [isLLMAvailable, setIsLLMAvailable] = useState(false);
 
+  // Trading Access State
+  const [isTradingEnabled, setIsTradingEnabled] = useState(false);
+  const [isCheckingStatus, setIsCheckingStatus] = useState(false);
+  const [isEnabling, setIsEnabling] = useState(false);
+  const { signTypedDataAsync } = useSignTypedData();
+  const { toast } = useToast();
+
   // Check LLM availability on mount
   useEffect(() => {
     setIsLLMAvailable(tradingAgent.isLLMAvailable());
@@ -104,7 +118,174 @@ export function AgentChat({
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
       }
     }
-  }, [messages, isProcessing, pendingAnalysis]);
+  }, [messages, pendingAnalysis, isProcessing, isTradingEnabled]);
+
+  // Check trading status (Builder Fee Approval)
+  useEffect(() => {
+    const checkStatus = async () => {
+      if (!address || !isAuthenticated) return;
+      setIsCheckingStatus(true);
+      try {
+        // If no agent wallet, definitely not enabled
+        if (!agentWallet) {
+          setIsTradingEnabled(false);
+          return;
+        }
+
+        const fee = await hyperliquidClient.getMaxBuilderFee(
+          address,
+          PEAR_BUILDER_ADDRESS,
+        );
+        setIsTradingEnabled(fee > 0);
+      } catch (e) {
+        console.error("Failed to check status", e);
+        setIsTradingEnabled(false);
+      } finally {
+        setIsCheckingStatus(false);
+      }
+    };
+    checkStatus();
+  }, [address, isAuthenticated, agentWallet]);
+
+  const handleEnableTrading = async () => {
+    if (!agentWallet || !address) return;
+    setIsEnabling(true);
+    try {
+      const now = Date.now();
+      const domain = {
+        name: "HyperliquidSignTransaction",
+        version: "1",
+        chainId: HYPERLIQUID_CHAIN_ID,
+        verifyingContract:
+          "0x0000000000000000000000000000000000000000" as `0x${string}`,
+      };
+
+      // 1. Approve Agent (Idempotent - harmless if already done, ensures freshness)
+      const agentTypes = {
+        "HyperliquidTransaction:ApproveAgent": [
+          { name: "hyperliquidChain", type: "string" },
+          { name: "agentAddress", type: "address" },
+          { name: "agentName", type: "string" },
+          { name: "nonce", type: "uint64" },
+        ],
+      };
+      const agentMessage = {
+        hyperliquidChain: "Mainnet",
+        agentAddress: agentWallet as `0x${string}`,
+        agentName: "TradeTok",
+        nonce: BigInt(now),
+      };
+      const agentSignature = await signTypedDataAsync({
+        account: address as `0x${string}`,
+        domain,
+        types: agentTypes,
+        primaryType: "HyperliquidTransaction:ApproveAgent",
+        message: agentMessage,
+      });
+
+      const agentPayload = {
+        action: {
+          type: "approveAgent",
+          hyperliquidChain: "Mainnet",
+          signatureChainId: "0xa4b1",
+          agentAddress: agentWallet,
+          agentName: "TradeTok",
+          nonce: now,
+        },
+        nonce: now,
+        signature: {
+          r: agentSignature.slice(0, 66),
+          s: "0x" + agentSignature.slice(66, 130),
+          v:
+            parseInt(agentSignature.slice(130, 132), 16) >= 27
+              ? parseInt(agentSignature.slice(130, 132), 16)
+              : parseInt(agentSignature.slice(130, 132), 16) + 27,
+        },
+      };
+
+      await fetch(HYPERLIQUID_API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(agentPayload),
+      });
+
+      // 2. Approve Builder Fee
+      const builderTypes = {
+        "HyperliquidTransaction:ApproveBuilderFee": [
+          { name: "hyperliquidChain", type: "string" },
+          { name: "maxFeeRate", type: "string" },
+          { name: "builder", type: "address" },
+          { name: "nonce", type: "uint64" },
+        ],
+      };
+
+      // Ensure separate nonces
+      const nonce2 = now + 1;
+
+      const builderMessage = {
+        hyperliquidChain: "Mainnet",
+        maxFeeRate: "0.01%",
+        builder: PEAR_BUILDER_ADDRESS as `0x${string}`,
+        nonce: BigInt(nonce2),
+      };
+
+      const builderSignature = await signTypedDataAsync({
+        account: address as `0x${string}`,
+        domain,
+        types: builderTypes,
+        primaryType: "HyperliquidTransaction:ApproveBuilderFee",
+        message: builderMessage,
+      });
+
+      const builderPayload = {
+        action: {
+          type: "approveBuilderFee",
+          hyperliquidChain: "Mainnet",
+          signatureChainId: "0xa4b1",
+          maxFeeRate: "0.01%",
+          builder: PEAR_BUILDER_ADDRESS,
+          nonce: nonce2,
+        },
+        nonce: nonce2,
+        signature: {
+          r: builderSignature.slice(0, 66),
+          s: "0x" + builderSignature.slice(66, 130),
+          v:
+            parseInt(builderSignature.slice(130, 132), 16) >= 27
+              ? parseInt(builderSignature.slice(130, 132), 16)
+              : parseInt(builderSignature.slice(130, 132), 16) + 27,
+        },
+      };
+
+      const builderRes = await fetch(HYPERLIQUID_API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(builderPayload),
+      });
+
+      if (!builderRes.ok) throw new Error("Builder Approval Failed");
+
+      toast({
+        title: "Trading Enabled!",
+        description: "You can now trade with the AI agent.",
+      });
+      setIsTradingEnabled(true);
+
+      // Auto-execute pending if it exists
+      if (pendingAnalysis) {
+        // Could auto-trigger execute here or let user click confirm
+      }
+    } catch (err) {
+      console.error("Enable Trading Failed", err);
+      toast({
+        variant: "destructive",
+        title: "Activation Failed",
+        description: err instanceof Error ? err.message : "Unknown error",
+      });
+    } finally {
+      setIsEnabling(false);
+    }
+  };
 
   // Generate unique message ID
   const generateId = () =>
@@ -222,6 +403,16 @@ export function AgentChat({
 
   // Execute pending trade
   const handleExecute = async () => {
+    // Check for trading enabling first
+    if (!isTradingEnabled) {
+      addMessage({
+        type: "error",
+        content:
+          "You need to enable trading access (Builder Fee) before executing trades.",
+      });
+      return;
+    }
+
     if (!pendingAnalysis || isProcessing) return;
 
     setIsProcessing(true);
@@ -667,29 +858,56 @@ export function AgentChat({
             </div>
 
             {/* Pending Confirmation */}
-            {pendingAnalysis && !isProcessing && (
-              <div className="px-4 py-3 bg-gradient-to-r from-yellow-500/10 to-orange-500/10 border-y border-yellow-500/20">
-                <p className="text-sm text-yellow-300 mb-3 font-medium">
-                  Ready to execute this trade?
-                </p>
-                <div className="flex gap-2">
-                  <Button
-                    onClick={handleExecute}
-                    className="flex-1 bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 text-white shadow-lg shadow-emerald-500/20"
-                  >
-                    <Check className="w-4 h-4 mr-2" />
-                    Confirm Trade
-                  </Button>
-                  <Button
-                    onClick={handleCancel}
-                    variant="outline"
-                    className="border-red-500/30 text-red-400 hover:bg-red-500/10"
-                  >
-                    <X className="w-4 h-4" />
-                  </Button>
+            {/* Pending Analysis or Trading Enable Confirmation */}
+            {(pendingAnalysis || (!isTradingEnabled && pendingAnalysis)) &&
+              !isProcessing && (
+                <div className="px-4 py-3 bg-gradient-to-r from-yellow-500/10 to-orange-500/10 border-y border-yellow-500/20">
+                  {!isTradingEnabled ? (
+                    <div className="flex flex-col gap-2">
+                      <div className="flex items-center gap-2 text-yellow-400 font-medium text-sm">
+                        <AlertCircle className="w-4 h-4" />
+                        <span>Trading Access Required</span>
+                      </div>
+                      <p className="text-xs text-muted-foreground/80">
+                        You need to approve the builder fee to trade.
+                      </p>
+                      <Button
+                        size="sm"
+                        onClick={handleEnableTrading}
+                        disabled={isEnabling}
+                        className="w-full bg-yellow-500/20 hover:bg-yellow-500/30 text-yellow-400 border border-yellow-500/50"
+                      >
+                        {isEnabling && (
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        )}
+                        Enable Trading Access
+                      </Button>
+                    </div>
+                  ) : (
+                    <>
+                      <p className="text-sm text-yellow-300 mb-3 font-medium">
+                        Ready to execute this trade?
+                      </p>
+                      <div className="flex gap-2">
+                        <Button
+                          onClick={handleExecute}
+                          className="flex-1 bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 text-white shadow-lg shadow-emerald-500/20"
+                        >
+                          <Check className="w-4 h-4 mr-2" />
+                          Confirm Trade
+                        </Button>
+                        <Button
+                          onClick={handleCancel}
+                          variant="outline"
+                          className="border-red-500/30 text-red-400 hover:bg-red-500/10"
+                        >
+                          <X className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    </>
+                  )}
                 </div>
-              </div>
-            )}
+              )}
 
             {/* Quick Actions */}
             {!pendingAnalysis && (
